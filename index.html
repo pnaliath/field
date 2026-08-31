@@ -3,9 +3,9 @@
 <title>Field — visual mixing prototype</title>
 <style>
   :root{
-    --ground:#0e1216; --panel:#151b21; --panel-2:#1b232a;
-    --rule:#26313a; --rule-soft:#1e262d;
-    --ink:#ccd6de; --ink-dim:#7b8c98; --ink-faint:#4e5d68;
+    --ground:#0a0e18; --panel:#121a28; --panel-2:#182233;
+    --rule:#26344a; --rule-soft:#1c2637;
+    --ink:#ccd8e6; --ink-dim:#7b8ca2; --ink-faint:#51637a;
     --hot:#ff6b3d; --accent:#5fd0c2;
     --radius:3px;
     --sans:"Inter","Helvetica Neue",Helvetica,Arial,sans-serif;
@@ -140,7 +140,7 @@
 <div id="app">
   <header>
     <div class="wordmark">Field</div>
-    <div class="tagline">across is pan, up is frequency, toward you is depth</div>
+    <div class="tagline">a room seen from the mix position — across is pan, up is frequency, into the room is depth</div>
     <div class="header-actions">
       <div class="seg" id="tools">
         <button data-tool="move" class="on">Move</button>
@@ -253,7 +253,7 @@
 const FMIN = 28, FMAX = 18000;
 const NBANDS = 76;
 const DYN = 76, GATE = 0.095, MAX_EQ = 8;
-const PALETTE = ["#e8604c","#e2a33c","#8fc45a","#4fc4b0","#5aa8e8","#9d7ce6","#e06fa8","#c9b06a"];
+const PALETTE = ["#ff5a4e","#ffb03a","#8ede4a","#3fd8c8","#4d9bff","#a86bff","#ff6fc0","#ffd45e"];
 
 const bandF = new Float32Array(NBANDS);
 for (let i = 0; i < NBANDS; i++) bandF[i] = FMIN * Math.pow(FMAX / FMIN, i / (NBANDS - 1));
@@ -270,18 +270,38 @@ const g = cv.getContext("2d");
 let W = 0, H = 0, DPR = 1;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 
-const PAD = { l: 46, r: 58, t: 16, b: 26 };
-const plot = () => ({ x: PAD.l, y: PAD.t, w: W - PAD.l - PAD.r, h: H - PAD.t - PAD.b });
-const railX = () => W - PAD.r + 26;
+/* ---------- the room ----------
+   The back wall carries the field: across is pan, up is frequency.
+   The floor below it carries depth, and catches each body's shadow.  */
+const PAD = { l: 44, r: 62, t: 46, b: 16 };
+const FLOOR_SHARE = 0.30;          // how much of the height is floor
+const plot = () => {
+  const h = (H - PAD.t - PAD.b) * (1 - FLOOR_SHARE);
+  return { x: PAD.l, y: PAD.t, w: W - PAD.l - PAD.r, h };
+};
+const room = () => {
+  const p = plot();
+  const floorTop = p.y + p.h;
+  const floorBot = H - PAD.b;
+  return { ...p, floorTop, floorBot, floorH: floorBot - floorTop,
+           cx: p.x + p.w / 2, half: (p.w / 2) * 0.94 };
+};
+const railX = () => W - PAD.r + 30;
+
 const freqToY = f => { const p = plot();
   return p.y + p.h - Math.log(clamp(f, FMIN, FMAX) / FMIN) / Math.log(FMAX / FMIN) * p.h; };
 const yToFreq = y => { const p = plot();
   return FMIN * Math.pow(FMAX / FMIN, clamp((p.y + p.h - y) / p.h, 0, 1)); };
-const panToX = pan => { const p = plot(); return p.x + p.w / 2 + clamp(pan, -1, 1) * (p.w / 2) * 0.94; };
-const xToPan = x => { const p = plot(); return clamp((x - (p.x + p.w / 2)) / ((p.w / 2) * 0.94), -1, 1); };
-const maxHalf = () => plot().w * 0.115;
-const depthToY = d => { const p = plot(); return p.y + 14 + (1 - d) * (p.h - 28); };
-const yToDepth = y => { const p = plot(); return clamp(1 - (y - p.y - 14) / (p.h - 28), 0, 1); };
+
+/* Depth compresses the stereo field toward the centre, the way a room does. */
+const persp = d => 0.54 + 0.46 * d;
+const panToX = (pan, d) => { const r = room(); return r.cx + clamp(pan, -1, 1) * r.half * persp(d == null ? 1 : d); };
+const xToPan = (x, d) => { const r = room(); return clamp((x - r.cx) / (r.half * persp(d == null ? 1 : d)), -1, 1); };
+const maxHalf = () => plot().w * 0.16;
+/* Where a body of this depth rests on the floor. */
+const floorYFor = d => { const r = room(); return r.floorBot - (1 - d) * r.floorH * 0.82; };
+const depthToY = d => { const r = room(); return r.y + 14 + (1 - d) * (r.h + r.floorH - 34); };
+const yToDepth = y => { const r = room(); return clamp(1 - (y - r.y - 14) / (r.h + r.floorH - 34), 0, 1); };
 
 /* ============================================================
    Offline analysis
@@ -672,18 +692,31 @@ class Track {
     return mx;
   }
 
-  zScale() { return 0.5 + 0.95 * this.depth; }
-  /* One voice: the blob's own width carries stereo width.
-     Several voices: the blobs are compact and width moves them apart. */
+  zScale() { return persp(this.depth); }
+  /* One voice: the body's own width carries stereo width.
+     Several voices: the bodies are compact and width moves them apart. */
   baseHalf() {
-    const w = this.multi() ? 0.42 : (0.22 + 0.78 * (this.width / 2));
+    const w = this.multi() ? 0.52 : (0.26 + 0.86 * (this.width / 2));
     return maxHalf() * w * this.zScale();
   }
   voicePan(v) { return clamp(this.pan + v.panOff * this.width, -1, 1); }
-  voiceX(v) { return panToX(this.voicePan(v)); }
+  voiceX(v) { return panToX(this.voicePan(v), this.depth); }
+  lobeOf(v, i) {
+    for (const L of v.lobes) if (i >= L[0] && i <= L[1]) return L;
+    return null;
+  }
+  /* Energy still sets the bulge, but a semicircular taper across the lobe
+     rounds it into a body instead of leaving a ragged ribbon. */
   halfWidthAt(v, i) {
     const s = v.shape[i];
-    return s <= GATE ? 0 : this.baseHalf() * Math.pow(s, 0.85);
+    if (s <= GATE) return 0;
+    const L = this.lobeOf(v, i);
+    let round = 1;
+    if (L && L[1] > L[0]) {
+      const u = (i - L[0]) / (L[1] - L[0]) * 2 - 1;
+      round = Math.sqrt(Math.max(0, 1 - u * u * 0.94));
+    }
+    return this.baseHalf() * Math.pow(s, 0.55) * round;
   }
   voiceBBox(v) {
     const x = this.voiceX(v);
@@ -890,44 +923,129 @@ const hexA = (hex, a) => {
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 };
 
-function drawGrid() {
-  const p = plot();
+function drawRoom() {
+  const r = room();
+  const mono = getComputedStyle(document.body).getPropertyValue("--mono");
+
+  // air in the room — lighter toward the back wall
+  const sky = g.createLinearGradient(0, r.y - 30, 0, r.floorTop);
+  sky.addColorStop(0, "#0c1220");
+  sky.addColorStop(1, "#182741");
+  g.fillStyle = sky;
+  g.fillRect(r.x - 26, r.y - 34, r.w + 52, r.h + 34);
+
+  // floor, widening toward the listener
+  const inset = r.w * 0.09;
+  g.beginPath();
+  g.moveTo(r.x + inset, r.floorTop);
+  g.lineTo(r.x + r.w - inset, r.floorTop);
+  g.lineTo(r.x + r.w + 30, r.floorBot);
+  g.lineTo(r.x - 30, r.floorBot);
+  g.closePath();
+  const fl = g.createLinearGradient(0, r.floorTop, 0, r.floorBot);
+  fl.addColorStop(0, "#16233a");
+  fl.addColorStop(1, "#0a0f1a");
+  g.fillStyle = fl; g.fill();
+
+  // depth rungs on the floor, one per notch of level
   g.save();
-  g.strokeStyle = "#1c242b"; g.lineWidth = 1; g.fillStyle = "#42505b";
-  g.font = "10px " + getComputedStyle(document.body).getPropertyValue("--mono");
+  g.beginPath();
+  g.moveTo(r.x + inset, r.floorTop); g.lineTo(r.x + r.w - inset, r.floorTop);
+  g.lineTo(r.x + r.w + 30, r.floorBot); g.lineTo(r.x - 30, r.floorBot);
+  g.closePath(); g.clip();
+  g.strokeStyle = "rgba(120,160,220,.13)"; g.lineWidth = 1;
+  for (let k = 0; k <= 6; k++) {
+    const d = k / 6, y = floorYFor(d);
+    const t = (y - r.floorTop) / Math.max(1, r.floorH);
+    const halfw = (r.w / 2 - inset) + t * (r.w / 2 + 30 - (r.w / 2 - inset));
+    g.beginPath();
+    g.moveTo(r.cx - halfw, y + .5); g.lineTo(r.cx + halfw, y + .5); g.stroke();
+  }
+  for (let k = -5; k <= 5; k++) {
+    const u = k / 5;
+    g.beginPath();
+    g.moveTo(r.cx + u * (r.w / 2 - inset), r.floorTop);
+    g.lineTo(r.cx + u * (r.w / 2 + 30), r.floorBot);
+    g.stroke();
+  }
+  g.restore();
+
+  // wall frame and the corner lines that make it a box
+  g.strokeStyle = "rgba(130,170,225,.20)"; g.lineWidth = 1;
+  g.strokeRect(r.x + .5, r.y - 26.5, r.w, r.h + 26);
+  g.beginPath();
+  g.moveTo(r.x + inset, r.floorTop); g.lineTo(r.x - 30, r.floorBot);
+  g.moveTo(r.x + r.w - inset, r.floorTop); g.lineTo(r.x + r.w + 30, r.floorBot);
+  g.stroke();
+
+  // frequency scale up the left wall
+  g.fillStyle = "#6b8099";
+  g.font = "10px " + mono;
   g.textAlign = "right"; g.textBaseline = "middle";
+  g.strokeStyle = "rgba(120,160,220,.10)";
   GRID_F.forEach(f => {
     const y = Math.round(freqToY(f)) + 0.5;
-    g.beginPath(); g.moveTo(p.x, y); g.lineTo(p.x + p.w, y); g.stroke();
-    g.fillText(hzLabel(f), p.x - 8, y);
+    g.beginPath(); g.moveTo(r.x, y); g.lineTo(r.x + r.w, y); g.stroke();
+    g.fillText(hzLabel(f), r.x - 8, y);
   });
-  g.textAlign = "center"; g.textBaseline = "top";
+
+  // pan scale along the top of the wall
+  g.textAlign = "center"; g.textBaseline = "bottom";
+  g.fillStyle = "#6b8099";
   [[-1, "L"], [-0.5, ""], [0, "C"], [0.5, ""], [1, "R"]].forEach(([v, lab]) => {
-    const x = Math.round(panToX(v)) + 0.5;
-    g.strokeStyle = v === 0 ? "#242e36" : "#171e24";
-    g.beginPath(); g.moveTo(x, p.y); g.lineTo(x, p.y + p.h); g.stroke();
-    if (lab) g.fillText(lab, x, p.y + p.h + 7);
+    const x = Math.round(panToX(v, 1)) + 0.5;
+    g.strokeStyle = v === 0 ? "rgba(130,170,225,.16)" : "rgba(120,160,220,.07)";
+    g.beginPath(); g.moveTo(x, r.y); g.lineTo(x, r.floorTop); g.stroke();
+    if (lab) g.fillText(lab, x, r.y - 8);
+  });
+
+  drawMonitor(r.x + 4, r.y - 24, 1);
+  drawMonitor(r.x + r.w - 4, r.y - 24, -1);
+}
+
+/* A monitor in each front corner, angled toward the listener. */
+function drawMonitor(x, y, dir) {
+  const w = 30, h = 46, skew = 7 * dir;
+  g.save();
+  g.beginPath();
+  g.moveTo(x, y);
+  g.lineTo(x + w * dir, y + skew * 0.5);
+  g.lineTo(x + w * dir, y + h + skew * 0.5);
+  g.lineTo(x, y + h);
+  g.closePath();
+  g.fillStyle = "#1b2436"; g.fill();
+  g.strokeStyle = "rgba(150,185,235,.32)"; g.lineWidth = 1; g.stroke();
+  const cxk = x + w * 0.5 * dir;
+  [[0.34, 8.5], [0.72, 4.6]].forEach(([f, rad]) => {
+    g.beginPath();
+    g.ellipse(cxk, y + h * f + skew * 0.25, rad * 0.82, rad, 0, 0, Math.PI * 2);
+    g.fillStyle = "#0c1119"; g.fill();
+    g.strokeStyle = "rgba(150,185,235,.28)"; g.stroke();
   });
   g.restore();
 }
 
 function drawDepthRail() {
-  const p = plot(), x = railX();
+  const r = room(), x = railX();
+  const top = r.y + 8, bot = r.floorBot - 8;
   g.save();
-  g.strokeStyle = "#222c34"; g.lineWidth = 1;
-  g.beginPath(); g.moveTo(x + .5, p.y + 8); g.lineTo(x + .5, p.y + p.h - 8); g.stroke();
-  g.fillStyle = "#3d4a54";
+  const grd = g.createLinearGradient(0, top, 0, bot);
+  grd.addColorStop(0, "rgba(150,190,240,.34)");
+  grd.addColorStop(1, "rgba(150,190,240,.08)");
+  g.strokeStyle = grd; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(x + .5, top); g.lineTo(x + .5, bot); g.stroke();
+  g.fillStyle = "#6b8099";
   g.font = "9px " + getComputedStyle(document.body).getPropertyValue("--mono");
   g.textAlign = "center";
-  g.textBaseline = "bottom"; g.fillText("front", x, p.y + 6);
-  g.textBaseline = "top";    g.fillText("back", x, p.y + p.h - 4);
+  g.textBaseline = "bottom"; g.fillText("front", x, top - 4);
+  g.textBaseline = "top";    g.fillText("back", x, bot + 5);
   [...tracks].sort((a, b) => a.depth - b.depth).forEach(t => {
-    const y = depthToY(t.depth), r = 3.5 + 3.5 * t.depth;
-    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2);
-    g.fillStyle = hexA(t.color, t.audible() ? 0.28 + 0.6 * t.depth : 0.12);
+    const y = depthToY(t.depth), rad = 3 + 4 * t.depth;
+    g.beginPath(); g.arc(x, y, rad, 0, Math.PI * 2);
+    g.fillStyle = hexA(t.color, t.audible() ? 0.3 + 0.6 * t.depth : 0.12);
     g.fill();
     if (selected === t) {
-      g.beginPath(); g.arc(x, y, r + 3.5, 0, Math.PI * 2);
+      g.beginPath(); g.arc(x, y, rad + 3.5, 0, Math.PI * 2);
       g.strokeStyle = hexA(t.color, 0.9); g.lineWidth = 1.4; g.stroke();
     }
   });
@@ -969,24 +1087,71 @@ function focusPartners() {
 const dimOf = (t, partners) =>
   !partners ? 1 : t === selected ? 1 : partners.has(t.id) ? 0.5 : 0.15;
 
+function lobeCentre(t, v, a, b) {
+  const yTop = freqToY(bandF[b]), yBot = freqToY(bandF[a]);
+  let rx = 0;
+  for (let i = a; i <= b; i++) rx = Math.max(rx, t.halfWidthAt(v, i));
+  return { x: t.voiceX(v), cy: (yTop + yBot) / 2, rx: Math.max(rx, 4), ry: Math.max((yBot - yTop) / 2, 4) };
+}
+
 function drawTrack(t, dim) {
   const off = !t.audible();
-  const blur = (1 - t.depth) * 4.4;
+  const blur = (1 - t.depth) * 3.6;
   t.voices.forEach(v => {
     const lit = off ? 0 : v.lit;
-    const alpha = (0.03 + (0.09 + 0.46 * t.depth) * lit) * dim;
-    const lineA = (0.09 + (0.24 + 0.58 * t.depth) * lit) * dim;
+    if (!v.lobes.length) return;
+
+    // shadow on the floor, placed by depth
+    v.lobes.forEach(([a, b]) => {
+      const c = lobeCentre(t, v, a, b);
+      const fy = floorYFor(t.depth);
+      g.save();
+      g.globalAlpha = (0.05 + 0.30 * lit) * dim * (0.35 + 0.65 * t.depth);
+      g.beginPath();
+      g.ellipse(c.x, fy, c.rx * 0.95, c.rx * 0.22, 0, 0, Math.PI * 2);
+      g.fillStyle = "#03060c"; g.fill();
+      g.restore();
+    });
+
+    const bodyA = (0.05 + (0.10 + 0.42 * t.depth) * lit) * dim;
+    const lineA = (0.12 + (0.26 + 0.55 * t.depth) * lit) * dim;
+
     g.save();
     if (blur > 0.4 && g.filter !== undefined) g.filter = `blur(${blur.toFixed(1)}px)`;
-    g.fillStyle = hexA(t.color, alpha);
-    v.lobes.forEach(([a, b]) => { lobePath(t, v, a, b); g.fill(); });
+    v.lobes.forEach(([a, b]) => {
+      const c = lobeCentre(t, v, a, b);
+      const rad = Math.max(c.rx, c.ry);
+      const grd = g.createRadialGradient(
+        c.x - c.rx * 0.34, c.cy - c.ry * 0.40, rad * 0.05,
+        c.x, c.cy, rad * 1.06);
+      grd.addColorStop(0,    hexA(t.color, Math.min(0.92, bodyA * 2.3)));
+      grd.addColorStop(0.45, hexA(t.color, bodyA * 1.25));
+      grd.addColorStop(1,    hexA(t.color, bodyA * 0.35));
+      lobePath(t, v, a, b);
+      g.fillStyle = grd; g.fill();
+    });
     g.restore();
+
     g.save();
     if (off) g.setLineDash([3, 4]);
-    g.strokeStyle = hexA(t.color, selected === t ? Math.max(lineA, 0.85) : lineA);
-    g.lineWidth = selected === t ? 1.6 : 0.7 + t.depth * 0.9;
+    g.strokeStyle = hexA(t.color, selected === t ? Math.max(lineA, 0.9) : lineA);
+    g.lineWidth = selected === t ? 1.7 : 0.7 + t.depth * 0.9;
     v.lobes.forEach(([a, b]) => { lobePath(t, v, a, b); g.stroke(); });
     g.restore();
+
+    // specular highlight, so a body reads as round rather than flat
+    if (lit > 0.1) {
+      g.save();
+      v.lobes.forEach(([a, b]) => {
+        const c = lobeCentre(t, v, a, b);
+        g.beginPath();
+        g.ellipse(c.x - c.rx * 0.30, c.cy - c.ry * 0.42,
+                  c.rx * 0.26, c.ry * 0.15, -0.35, 0, Math.PI * 2);
+        g.fillStyle = `rgba(255,255,255,${0.16 * lit * dim * t.depth})`;
+        g.fill();
+      });
+      g.restore();
+    }
   });
 }
 
@@ -1022,7 +1187,7 @@ function drawEqNodes(t) {
     g.beginPath();
     g.moveTo(x, y - r); g.lineTo(x + r, y); g.lineTo(x, y + r); g.lineTo(x - r, y);
     g.closePath();
-    g.fillStyle = n.db < 0 ? "#0e1216" : hexA(t.color, 0.75);
+    g.fillStyle = n.db < 0 ? "#0a0e18" : hexA(t.color, 0.75);
     g.fill();
     g.strokeStyle = t.color; g.lineWidth = 1.3; g.stroke();
   });
@@ -1045,7 +1210,7 @@ function trackSpan(t) {
 function drawHandles(t) {
   const sp = trackSpan(t);
   if (!sp) return;
-  const cx = panToX(t.pan), midY = (sp.y0 + sp.y1) / 2;
+  const cx = panToX(t.pan, t.depth), midY = (sp.y0 + sp.y1) / 2;
   const yTop = Math.max(sp.y0, freqToY(Math.min(t.lp, FMAX)));
   const yBot = Math.min(sp.y1, freqToY(Math.max(t.hp, FMIN)));
   g.save();
@@ -1055,7 +1220,7 @@ function drawHandles(t) {
   const h = (hx, hy, horiz) => {
     g.beginPath();
     if (horiz) g.rect(hx - 9, hy - 2.5, 18, 5); else g.rect(hx - 2.5, hy - 9, 5, 18);
-    g.fillStyle = "#0e1216"; g.fill();
+    g.fillStyle = "#0a0e18"; g.fill();
     g.strokeStyle = t.color; g.lineWidth = 1.4; g.stroke();
   };
   h(cx, yTop, true); h(cx, yBot, true);
@@ -1083,11 +1248,25 @@ function drawLabels(partners) {
     const dim = dimOf(t, partners), off = !t.audible();
     t.voices.forEach(v => {
       if (!v.lobes.length) return;
-      const b = t.voiceBBox(v), lit = off ? 0 : v.lit;
-      g.font = (9.5 + t.depth * 2.6).toFixed(1) + "px " + sans;
-      g.textAlign = "center"; g.textBaseline = "bottom";
-      g.fillStyle = hexA(t.color, (0.16 + (0.28 + 0.5 * t.depth) * lit) * dim);
-      g.fillText(unitName(t, v), t.voiceX(v), Math.max(12, b.y0 - 7));
+      // label the biggest body, sitting inside it as in a stereo-field diagram
+      let best = null, area = -1;
+      v.lobes.forEach(([a, b]) => {
+        const c = lobeCentre(t, v, a, b);
+        if (c.rx * c.ry > area) { area = c.rx * c.ry; best = c; }
+      });
+      if (!best) return;
+      const lit = off ? 0 : v.lit;
+      const size = clamp(9 + t.depth * 3.5 + Math.min(best.rx, best.ry) * 0.07, 9, 16);
+      g.font = `600 ${size.toFixed(1)}px ${sans}`;
+      g.textAlign = "center"; g.textBaseline = "middle";
+      const name = unitName(t, v).toUpperCase();
+      const inside = best.rx > g.measureText(name).width / 2 + 4 && best.ry > size;
+      const y = inside ? best.cy : best.cy - best.ry - 8;
+      g.lineWidth = 3;
+      g.strokeStyle = `rgba(6,10,16,${0.55 * dim})`;
+      g.strokeText(name, best.x, y);
+      g.fillStyle = `rgba(238,245,252,${(0.30 + 0.60 * lit) * dim})`;
+      g.fillText(name, best.x, y);
     });
   });
   g.restore();
@@ -1144,7 +1323,7 @@ function dragHUD() {
   const w = g.measureText(text).width + 16;
   const x = clamp(mouse.x - w / 2, plot().x, plot().x + plot().w - w);
   const y = clamp(mouse.y + 22, 8, H - 30);
-  g.fillStyle = "rgba(14,18,22,.92)";
+  g.fillStyle = "rgba(8,12,20,.93)";
   g.strokeStyle = atLimit ? "#ff6b3d" : hexA(t.color, 0.5);
   g.lineWidth = 1;
   g.beginPath(); g.rect(x, y, w, 21); g.fill(); g.stroke();
@@ -1162,7 +1341,7 @@ function frame(ts) {
   if (!tracks.length) return;
   updateLit(); computeMasking();
   const partners = focusPartners();
-  drawGrid();
+  drawRoom();
   drawCollisions(partners);
   [...tracks].sort((a, b) => a.depth - b.depth).forEach(t => drawTrack(t, dimOf(t, partners)));
   if (selected) { drawHandles(selected); drawEqNodes(selected); }
@@ -1196,7 +1375,7 @@ function hitNode(t, mx, my) {
 function hitHandle(t, mx, my) {
   const sp = trackSpan(t);
   if (!sp) return null;
-  const cx = panToX(t.pan), midY = (sp.y0 + sp.y1) / 2;
+  const cx = panToX(t.pan, t.depth), midY = (sp.y0 + sp.y1) / 2;
   const near = (hx, hy, rx, ry) => Math.abs(mx - hx) < rx && Math.abs(my - hy) < ry;
   if (near(cx, Math.max(sp.y0, freqToY(Math.min(t.lp, FMAX))), 14, 7)) return "lp";
   if (near(cx, Math.min(sp.y1, freqToY(Math.max(t.hp, FMIN))), 14, 7)) return "hp";
@@ -1243,7 +1422,7 @@ cv.addEventListener("pointerdown", e => {
       const sp = trackSpan(selected);
       cv.setPointerCapture(e.pointerId);
       drag = { t: selected, mode: h, x0: x, y0: y, s: { ...selected },
-               half: Math.max(sp.x1 - panToX(selected.pan), 1), w0: selected.width };
+               half: Math.max(sp.x1 - panToX(selected.pan, selected.depth), 1), w0: selected.width };
       return;
     }
   }
@@ -1281,13 +1460,13 @@ cv.addEventListener("pointermove", e => {
       drag.node.db = clamp(drag.db0 + dx * 0.16, -30, 24);
       t.push(); break;
     case "body":
-      t.pan = xToPan(panToX(drag.s.pan) + dx);
+      t.pan = xToPan(panToX(drag.s.pan, t.depth) + dx, t.depth);
       t.tilt = clamp(drag.s.tilt - dy * 0.07, -18, 18);
       t.push(); break;
     case "lp": t.lp = clamp(yToFreq(y), Math.max(t.hp * 1.2, FMIN), FMAX); t.push(); break;
     case "hp": t.hp = clamp(yToFreq(y), FMIN, Math.min(t.lp / 1.2, 16000)); t.push(); break;
     case "width": {
-      const dir = drag.x0 > panToX(t.pan) ? 1 : -1;
+      const dir = drag.x0 > panToX(t.pan, t.depth) ? 1 : -1;
       t.width = clamp(drag.w0 * Math.max(0.02, (drag.half + dx * dir) / drag.half), 0, 3);
       t.push(); break;
     }
