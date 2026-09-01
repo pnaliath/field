@@ -64,18 +64,7 @@
   .track.sel::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--swatch)}
   .track.dimmed{opacity:.42}
   .track-top{display:flex;align-items:center;gap:8px}
-  .dot{width:11px;height:11px;border-radius:50%;background:var(--swatch);flex:none;
-    transition:opacity .12s,transform .1s;cursor:pointer;border:1px solid rgba(0,0,0,.35)}
-  .dot:hover{transform:scale(1.25)}
-  #swatchPop{position:fixed;z-index:50;background:var(--panel);border:1px solid var(--rule);
-    border-radius:4px;padding:9px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
-  #swatchPop .grid{display:grid;grid-template-columns:repeat(6,18px);gap:6px}
-  #swatchPop .grid button{width:18px;height:18px;border-radius:50%;border:1px solid rgba(0,0,0,.4)}
-  #swatchPop .grid button:hover{outline:2px solid var(--accent);outline-offset:1px}
-  #swatchPop .custom{display:flex;align-items:center;gap:7px;margin-top:9px;
-    padding-top:9px;border-top:1px solid var(--rule-soft);font-size:11px;color:var(--ink-faint)}
-  #swatchPop input[type=color]{width:26px;height:20px;padding:0;border:1px solid var(--rule);
-    border-radius:3px;background:none;cursor:pointer}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--swatch);flex:none;transition:opacity .12s}
   .track.silent .dot{opacity:.25}
   .track-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px}
   .track.silent .track-name{opacity:.5}
@@ -106,14 +95,6 @@
     font-size:11px;color:var(--hot)}
   .mask-chip button:hover{background:rgba(255,107,61,.16)}
   .clean{color:var(--ink-faint);font-size:12px}
-  .mask-sense{display:flex;align-items:center;gap:6px;flex:none;font-size:11px;
-    color:var(--ink-faint);padding-left:10px;border-left:1px solid var(--rule-soft)}
-  .mask-sense input{-webkit-appearance:none;appearance:none;width:70px;height:3px;
-    background:var(--rule);border-radius:2px;outline:none}
-  .mask-sense input::-webkit-slider-thumb{-webkit-appearance:none;width:9px;height:13px;
-    border-radius:2px;background:var(--hot);cursor:pointer}
-  .mask-sense input::-moz-range-thumb{width:9px;height:13px;border-radius:2px;
-    background:var(--hot);border:none;cursor:pointer}
   .footer-right{display:flex;align-items:center;gap:8px;flex:none;
     padding-left:12px;border-left:1px solid var(--rule-soft);margin-left:4px}
 
@@ -215,9 +196,6 @@
   #zoomSlider::-moz-range-thumb{width:11px;height:15px;border-radius:2px;
     background:var(--ink-dim);border:1px solid var(--rule);cursor:pointer}
   #zoombar .zreset{width:auto;padding:0 6px;font-size:10.5px;font-family:var(--mono)}
-  #zoombar .fpresets{display:flex;gap:3px}
-  #zoombar .fpresets button{width:auto;padding:0 7px;height:18px;font-size:10.5px}
-  #zoombar .fpresets button.on{background:#2a3b47;color:var(--ink);border-color:#3e5567}
 
 
   /* ---------- export dialog ---------- */
@@ -310,15 +288,6 @@
         <button id="zoomIn" title="Zoom in">+</button>
         <span class="zval" id="zoomVal">100%</span>
         <button class="zreset" id="zoomReset" title="Reset view">fit</button>
-        <span style="width:1px;height:16px;background:var(--rule)"></span>
-        <span style="font-size:10.5px;color:var(--ink-faint)">freq</span>
-        <div class="opts fpresets" id="fPresets">
-          <button data-lo="28" data-hi="18000" class="on">all</button>
-          <button data-lo="28" data-hi="320">low</button>
-          <button data-lo="150" data-hi="2000">mid</button>
-          <button data-lo="1500" data-hi="18000">high</button>
-        </div>
-        <span class="zval" id="fVal" style="min-width:74px">28–18k</span>
       </div>
       <button id="helpOpen" class="hidden">Gestures</button>
       <div id="help">
@@ -359,9 +328,7 @@
             <dt>One stroke</dt><dd>Moves a band by at most 15 dB, so nothing runs away. Stroke again to go further.</dd>
             <dt>Scroll</dt><dd>Brush height</dd>
             <div class="grp">Masking</div>
-            <dt>Orange bands</dt><dd>Two sounds fighting over the same frequency, position and moment</dd>
-            <dt>Not shown</dt><dd>Overlaps where one sound is far louder than the other. That is not a fight; one has already won.</dd>
-            <dt>Sensitivity</dt><dd>The slider by the collision list, if it reports more or less than you hear</dd>
+            <dt>Orange bands</dt><dd>Two sounds sharing a frequency and a position while both play</dd>
             <dt>Carve</dt><dd>Notches the lower-priority track where they collide</dd>
             <div class="grp">Keys</div>
             <dt>Ctrl+Z</dt><dd>Undo · Ctrl+Shift+Z to redo</dd>
@@ -426,10 +393,6 @@
         <svg id="playIcon" viewBox="0 0 12 12"><path d="M2 1l9 5-9 5z"/></svg>
       </button>
       <div class="masks" id="masks"><span class="clean">Load a session to see where sounds collide.</span></div>
-      <div class="mask-sense" title="How readily a collision is reported">
-        <span>masking</span>
-        <input id="maskSense" type="range" min="0.3" max="2.6" step="0.05" value="1">
-      </div>
     </div>
     <div class="footer-right">
       <button class="btn" id="btnReset">Reset moves</button>
@@ -531,34 +494,16 @@
 const FMIN = 28, FMAX = 18000;
 const NBANDS = 76;
 const DYN = 76, GATE = 0.095, MAX_EQ = 14;
-/* Drawing shows everything a track contains. Masking is a much stricter
-   question, so it gets its own threshold: a band only counts if it is a
-   real part of that sound, not a tail. */
-const MASK_GATE = 0.42;
-let maskSense = 1;
 const PALETTE = ["#ff5a4e","#ffb03a","#8ede4a","#3fd8c8","#4d9bff","#a86bff","#ff6fc0","#ffd45e"];
 
 const bandF = new Float32Array(NBANDS);
 for (let i = 0; i < NBANDS; i++) bandF[i] = FMIN * Math.pow(FMAX / FMIN, i / (NBANDS - 1));
 
-/* K-weighting, near enough to BS.1770: a high shelf above ~1.7 kHz and a
-   second-order roll-off below ~38 Hz. Peak level says almost nothing about
-   how loud something sits in a mix; this does. */
-const K_DB = new Float32Array(NBANDS);
-for (let i = 0; i < NBANDS; i++) {
-  const f = bandF[i];
-  const shelf = 4.0 / (1 + Math.pow(1681 / f, 2));
-  const hp = 40 * Math.log10(f / Math.sqrt(f * f + 38 * 38));
-  // half strength: full K-weighting is calibrated for programme loudness and
-  // buries a kick, which is not how a kick sits in a mix
-  K_DB[i] = (shelf + hp) * 0.55;
-}
-
 let ctxA = null, master = null;
 let tracks = [], collisions = [];
 let playing = false, bypass = false, selected = null;
 let startedAt = 0, loopDur = 1;
-let REF_DB = 0, REF_LOUD = -20, LOUD_REF = 0, LOUD_LO = -40, LOUD_SPAN = 30;
+let REF_DB = 0, REF_LOUD = -20;
 let tool = "move", brush = 18;
 
 const cv = document.getElementById("canvas");
@@ -625,30 +570,10 @@ function syncZoomUI() {
 
 const zOf = depth => (1 - clamp(depth, 0, 1));           // 0 front .. 1 back
 const FLO = 0.06, FHI = 1.02;
-/* The visible slice of the spectrum. Narrow it and the whole room
-   re-scales to that range, so you can work inside the low mids without
-   everything else in the way. */
-let fView = { lo: FMIN, hi: FMAX };
-const fSpan = () => Math.log(fView.hi / fView.lo);
 const freqToW = f =>
-  FLO + Math.log(clamp(f, fView.lo, fView.hi) / fView.lo) / fSpan() * (FHI - FLO);
+  FLO + Math.log(clamp(f, FMIN, FMAX) / FMIN) / Math.log(FMAX / FMIN) * (FHI - FLO);
 const wToFreq = wy =>
-  fView.lo * Math.exp(clamp((wy - FLO) / (FHI - FLO), 0, 1) * fSpan());
-const inFView = f => f >= fView.lo * 0.999 && f <= fView.hi * 1.001;
-
-function setFView(lo, hi) {
-  const MINOCT = 0.6;
-  lo = clamp(lo, FMIN, FMAX); hi = clamp(hi, FMIN, FMAX);
-  if (Math.log2(hi / lo) < MINOCT) hi = lo * Math.pow(2, MINOCT);
-  if (hi > FMAX) { hi = FMAX; lo = hi / Math.pow(2, MINOCT); }
-  fView = { lo, hi };
-  planeCache.clear();
-  syncFreqUI();
-}
-function zoomFreq(atF, factor) {
-  const l = Math.log(fView.lo), h = Math.log(fView.hi), a = Math.log(clamp(atF, FMIN, FMAX));
-  setFView(Math.exp(a + (l - a) * factor), Math.exp(a + (h - a) * factor));
-}
+  FMIN * Math.pow(FMAX / FMIN, clamp((wy - FLO) / (FHI - FLO), 0, 1));
 
 /* Rotate a world point into camera space. */
 function toCam(wx, wy, z01) {
@@ -962,16 +887,9 @@ class Track {
       const env = v.gate || envd.e;
       let peak = 0, tot = 0;
       for (let k = 0; k < env.length; k++) { tot += env[k] * env[k]; if (env[k] > peak) peak = env[k]; }
-      // how often this voice is actually sounding, across the loop
-      let on = 0;
-      for (let k = 0; k < env.length; k++) if (env[k] > 0.09) on++;
-      const duty = clamp(on / Math.max(1, env.length), 0.02, 1);
-      let sum = 0;
-      for (let k = 0; k < NBANDS; k++) sum += Math.pow(10, (spec[k] + K_DB[k]) / 10);
-      const loudDb = 10 * Math.log10(Math.max(sum, 1e-12)) + 4 * Math.log10(duty);
       return {
         label: raw.length > 1 ? (v.panOff < -0.08 ? "L" : v.panOff > 0.08 ? "R" : "C") : "",
-        panOff: v.panOff, spectrum: spec, env, duty, loudDb,
+        panOff: v.panOff, spectrum: spec, env,
         weight: Math.sqrt(tot / env.length) || 0.001,
         shape: new Float32Array(NBANDS), lobes: [], lit: 1, idx: i
       };
@@ -1004,12 +922,11 @@ class Track {
   sendAmt() { return clamp(this.verb, 0, 1) * 0.9; }
 
   /* How loud this body is, 0..1 — it sets the depth of the solid. */
-  /* K-weighted loudness, in the session's own units. Spread over 26 dB,
-     which is roughly the range between a lead and a background part. */
   levelNorm(v) {
-    return clamp((v.loudDb + this.trimDb() - LOUD_LO) / Math.max(1, LOUD_SPAN), 0, 1);
+    let peak = 0;
+    for (let i = 0; i < NBANDS; i++) if (v.shape[i] > peak) peak = v.shape[i];
+    return clamp(peak * Math.pow(10, this.trimDb() / 40), 0, 1);
   }
-  loudLU(v) { return v.loudDb + this.trimDb() - LOUD_REF; }
   /* Radius along the depth axis, in z01 units. Dividing by zSpan makes a
      body with equal pan and depth radii come out actually round. */
   zRadiusAt(v, i) {
@@ -1174,7 +1091,7 @@ class Track {
      into a body. Result is in pan units, so it survives any camera angle. */
   halfPanAt(v, i) {
     const s = v.shape[i];
-    if (s <= GATE || !inFView(bandF[i])) return 0;
+    if (s <= GATE) return 0;
     const L = this.lobeOf(v, i);
     let round = 1;
     if (L && L[1] > L[0]) {
@@ -1252,7 +1169,7 @@ function runsOf(shape) {
   const lobes = [];
   let run = -1;
   for (let i = 0; i < NBANDS; i++) {
-    const on = shape[i] > GATE && inFView(bandF[i]);
+    const on = shape[i] > GATE;
     if (on && run < 0) run = i;
     if ((!on || i === NBANDS - 1) && run >= 0) {
       const end = on ? i : i - 1;
@@ -1387,30 +1304,19 @@ function computeMasking() {
       const xa = A.t.voicePan(A.v), xb = B.t.voicePan(B.v);
       // depth separation genuinely reduces masking, so it counts here
       const dz = 1 - Math.min(1, Math.abs(A.t.depth - B.t.depth) * 1.15);
-      // levels in the mix, so the comparison is between what you actually hear
-      const gA = A.t.loudLU(A.v), gB = B.t.loudLU(B.v);
       let sev = 0, loI = -1, hiI = -1, wsum = 0, fsum = 0;
       for (let i = 0; i < NBANDS; i++) {
-        const sa = A.v.shape[i], sb = B.v.shape[i];
-        // both must be a substantial part of their own sound
-        if (sa < MASK_GATE || sb < MASK_GATE) continue;
         const ha = A.t.halfPanAt(A.v, i), hb = B.t.halfPanAt(B.v, i);
         if (ha === 0 || hb === 0) continue;
         const ov = Math.min(xa + ha, xb + hb) - Math.max(xa - ha, xb - hb);
         if (ov <= 0) continue;
-        /* Masking is worst when two sounds sit at similar level. Far apart
-           and one has simply won, which is not a collision to fix. */
-        const bandA = gA + (sa - 1) * DYN, bandB = gB + (sb - 1) * DYN;
-        const rivalry = Math.exp(-Math.pow((bandA - bandB) / 11, 2));
-        if (rivalry < 0.12) continue;
-        const s = Math.min(1, ov / Math.max(1e-6, Math.min(ha, hb) * 2))
-                * Math.min(sa, sb) * rivalry;
+        const s = Math.min(1, ov / Math.max(1e-6, Math.min(ha, hb) * 2)) * Math.min(A.v.shape[i], B.v.shape[i]);
         sev += s;
         if (loI < 0) loI = i; hiI = i;
         wsum += s; fsum += s * Math.log(bandF[i]);
       }
       sev *= co * (0.35 + 0.65 * dz);
-      if (sev * maskSense > 1.6 && loI >= 0) {
+      if (sev > 0.7 && loI >= 0) {
         collisions.push({ a: A.t, va: A.v, b: B.t, vb: B.v, sev,
           lo: bandF[loI], hi: bandF[hiI],
           centre: Math.exp(fsum / Math.max(wsum, 1e-6)), bands: [loI, hiI] });
@@ -1519,7 +1425,7 @@ function drawRoom() {
      body reads against the right shelf whatever depth it sits at. */
   g.font = "10px " + mono;
   g.textAlign = "right"; g.textBaseline = "middle";
-  GRID_F.filter(inFView).forEach(f => {
+  GRID_F.forEach(f => {
     const wy = freqToW(f);
     const bl = corner(-1, wy, BACK), br = corner(1, wy, BACK);
     const flt = corner(-1, wy, FRONT), fr = corner(1, wy, FRONT);
@@ -1586,19 +1492,6 @@ function drawDepthRail() {
   g.textAlign = "center";
   g.textBaseline = "bottom"; g.fillText("front", x, top - 5);
   g.textBaseline = "top";    g.fillText("back", x, bot + 5);
-
-  /* Scale marks. The travel is normalised per track, so these hold for
-     every one of them: +10 dB forward, natural in the middle, -22 dB back. */
-  g.textAlign = "right"; g.textBaseline = "middle";
-  g.font = "8px " + getComputedStyle(document.body).getPropertyValue("--mono");
-  [[1, "+10"], [0.75, "+5"], [0.5, "0"], [0.25, "-11"], [0, "-22"]].forEach(([d, lab]) => {
-    const ty = depthToY(d);
-    g.strokeStyle = "rgba(150,190,240,.20)";
-    g.beginPath(); g.moveTo(x - 4, ty + .5); g.lineTo(x + 4, ty + .5); g.stroke();
-    g.fillStyle = "#51637a";
-    g.fillText(lab, x - 7, ty);
-  });
-  g.textAlign = "center";
   [...tracks].sort((a, b) => a.depth - b.depth).forEach(t => {
     const y = depthToY(t.depth), rad = 3 + 4 * t.depth;
     g.beginPath(); g.arc(x, y, rad, 0, Math.PI * 2);
@@ -1793,10 +1686,8 @@ function drawCollisions(partners) {
     if (partners && c.a !== selected && c.b !== selected) return;
     const live = Math.min(c.va.lit, c.vb.lit);
     if (live < 0.05) return;
-    const a0 = clamp(c.sev / 26, 0.05, 0.24) * live;
-    g.fillStyle = `rgba(255,140,70,${a0})`;
+    g.fillStyle = `rgba(255,107,61,${clamp(c.sev / 14, 0.12, 0.5) * live})`;
     for (let i = c.bands[0]; i <= c.bands[1]; i++) {
-      if (c.va.shape[i] < MASK_GATE || c.vb.shape[i] < MASK_GATE) continue;
       if (c.a.halfPanAt(c.va, i) === 0 || c.b.halfPanAt(c.vb, i) === 0) continue;
       const near = c.a.camZ() < c.b.camZ() ? c.a : c.b;
       const pa = c.a.voicePan(c.va), pb = c.b.voicePan(c.vb);
@@ -2424,12 +2315,6 @@ cv.addEventListener("wheel", e => {
     zoomAt(x, y, Math.pow(0.9988, e.deltaY));
     return;
   }
-  // the strip down the left edge is the frequency axis
-  if (x < PAD.l + 12) {
-    e.preventDefault();
-    zoomFreq(wToFreq(unproject(view().cx, y, 0).wy), Math.pow(1.0012, e.deltaY));
-    return;
-  }
   if ((tool === "sculpt" || tool === "erase") && selected) {
     e.preventDefault(); brush = clamp(brush - e.deltaY * 0.09, 8, 90); return;
   }
@@ -2531,7 +2416,7 @@ function renderRail() {
     el.style.setProperty("--swatch", t.color);
     el.innerHTML = `
       <div class="track-top">
-        <span class="dot" title="Change colour"></span>
+        <span class="dot"></span>
         <span class="track-name">${esc(t.name)}</span>
         ${t.multi() ? `<span class="vcount" title="shapes in the stereo field">${t.voices.length}×</span>` : ""}
         <button class="mini up" title="Raise priority" ${i === 0 ? "disabled" : ""}>↑</button>
@@ -2542,17 +2427,13 @@ function renderRail() {
       <div class="track-nums">
         <span><b>pan</b> <span class="v-pan"></span></span>
         <span><b>wide</b> <span class="v-w"></span></span>
-        <span><b>loud</b> <span class="v-d"></span></span>
+        <span><b>depth</b> <span class="v-d"></span></span>
         <span><b>trim</b> <span class="v-trim"></span></span>
         <span><b>verb</b> <span class="v-verb"></span></span>
         <span><b>eq</b> <span class="v-eq"></span></span>
       </div>`;
-    el.querySelector(".dot").addEventListener("click", ev => {
-      ev.stopPropagation();
-      openSwatches(t, ev.currentTarget);
-    });
     el.addEventListener("click", ev => {
-      if (ev.target.closest("button") || ev.target.closest(".dot")) return;
+      if (ev.target.closest("button")) return;
       select(selected === t ? null : t);
     });
     el.querySelector(".up").addEventListener("click", () => move(i, -1));
@@ -2581,8 +2462,7 @@ function renderRailNums() {
     const p = Math.round(t.pan * 100);
     el.querySelector(".v-pan").textContent = p === 0 ? "C" : (p < 0 ? "L" + -p : "R" + p);
     el.querySelector(".v-w").textContent = t.width.toFixed(2);
-    const lu = t.loudLU(t.loudest());
-    el.querySelector(".v-d").textContent = (lu >= 0 ? "+" : "") + lu.toFixed(1);
+    el.querySelector(".v-d").textContent = Math.round(t.depth * 100);
     const tr = t.trimDb();
     el.querySelector(".v-trim").textContent = (tr >= 0 ? "+" : "") + tr.toFixed(1);
     el.querySelector(".v-verb").textContent = Math.round(t.verb * 100) + "%";
@@ -2631,36 +2511,6 @@ document.getElementById("fsolo").addEventListener("click", () => {
   markCommit(() => { selected.soloed = !selected.soloed; tracks.forEach(t => t.push()); });
   renderRail(); select(selected);
 });
-
-/* Colour picker. Track colour is identity here, so it is worth being able
-   to set it: instrument families read faster when you choose the grouping. */
-const SWATCHES = [
-  "#ff5a4e", "#ff8a3d", "#ffb03a", "#ffd45e", "#c9e04a", "#8ede4a",
-  "#4ade80", "#3fd8c8", "#4dc7ff", "#4d9bff", "#7b7bff", "#a86bff",
-  "#d96bff", "#ff6fc0", "#ff7a9a", "#c9b06a", "#9aa8b8", "#e8eef5"
-];
-let swatchPop = null;
-function closeSwatches() {
-  if (swatchPop) { swatchPop.remove(); swatchPop = null; }
-}
-function openSwatches(t, anchor) {
-  closeSwatches();
-  const pop = document.createElement("div");
-  pop.id = "swatchPop";
-  pop.innerHTML = `<div class="grid">${SWATCHES.map(c =>
-    `<button data-c="${c}" style="background:${c}"></button>`).join("")}</div>
-    <label class="custom">custom <input type="color" value="${t.color}"></label>`;
-  document.body.appendChild(pop);
-  const r = anchor.getBoundingClientRect();
-  pop.style.left = Math.min(window.innerWidth - pop.offsetWidth - 10, r.left - 6) + "px";
-  pop.style.top = Math.min(window.innerHeight - pop.offsetHeight - 10, r.bottom + 7) + "px";
-  const apply = c => { t.color = c; renderRail(); if (selected === t) select(t); };
-  pop.querySelectorAll(".grid button").forEach(b =>
-    b.addEventListener("click", () => { apply(b.dataset.c); closeSwatches(); }));
-  pop.querySelector("input").addEventListener("input", e => apply(e.target.value));
-  pop.addEventListener("click", e => e.stopPropagation());
-  setTimeout(() => document.addEventListener("click", closeSwatches, { once: true }), 0);
-}
 
 const masksEl = document.getElementById("masks");
 function renderMasks() {
@@ -3130,19 +2980,7 @@ document.getElementById("zoomSlider").addEventListener("input", e => {
 document.getElementById("zoomIn").addEventListener("click", () => centreZoom(1.2));
 document.getElementById("zoomOut").addEventListener("click", () => centreZoom(1 / 1.2));
 document.getElementById("zoomReset").addEventListener("click",
-  () => { resetView(); setFView(FMIN, FMAX); toast("View reset"); });
-
-/* Frequency window: presets, plus scroll over the left axis strip to zoom
-   into whatever range you are pointing at. */
-function syncFreqUI() {
-  const el = document.getElementById("fVal");
-  if (el) el.textContent = hzLabel(fView.lo) + "\u2013" + hzLabel(fView.hi);
-  document.querySelectorAll("#fPresets button").forEach(b =>
-    b.classList.toggle("on",
-      Math.abs(+b.dataset.lo - fView.lo) < 1 && Math.abs(+b.dataset.hi - fView.hi) < 1));
-}
-document.querySelectorAll("#fPresets button").forEach(b =>
-  b.addEventListener("click", () => setFView(+b.dataset.lo, +b.dataset.hi)));
+  () => { resetView(); toast("View reset"); });
 
 /* ============================================================
    Timeline
@@ -3459,15 +3297,6 @@ function recalibrate() {
   // headroom, so the loudest band starts well below full width and a boost
   // still has somewhere to go
   REF_DB += 15;
-  LOUD_REF = -200; LOUD_LO = 200;
-  tracks.forEach(t => t.voices.forEach(v => {
-    if (v.loudDb > LOUD_REF) LOUD_REF = v.loudDb;
-    if (v.loudDb < LOUD_LO) LOUD_LO = v.loudDb;
-  }));
-  // pad the ends so nothing sits pinned flat against front or back
-  const span = clamp(LOUD_REF - LOUD_LO, 14, 42);
-  LOUD_SPAN = (LOUD_REF - LOUD_LO) + span * 0.24;
-  LOUD_LO -= span * 0.12;
   tracks.forEach(t => {
     t.depth0 = clamp(0.28 + (t.loudDb - REF_LOUD + 18) / 18 * 0.5, 0.2, 0.78);
     if (t.depth == null) t.depth = t.depth0;
@@ -3900,9 +3729,6 @@ document.getElementById("btnDemo").addEventListener("click", loadDemo);
 document.getElementById("btnDemo2").addEventListener("click", loadDemo);
 document.getElementById("btnPlay").addEventListener("click", togglePlay);
 document.getElementById("btnExport").addEventListener("click", openExport);
-document.getElementById("maskSense").addEventListener("input", e => {
-  maskSense = +e.target.value;
-});
 document.getElementById("btnBypass").addEventListener("click", toggleBypass);
 document.getElementById("btnReset").addEventListener("click", () => {
   mark();
@@ -3927,6 +3753,5 @@ document.addEventListener("drop", e => {
 resize();
 meterResize();
 syncZoomUI();
-syncFreqUI();
 applyMaster();
 </script>
