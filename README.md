@@ -16,7 +16,7 @@ means those tracks are masking each other.
 |---|---|
 | **X** — across | Pan |
 | **Y** — up | Frequency, log scale. A shape covers only the range the track really occupies. |
-| **Z** — toward you | Depth. Forward is louder, brighter and dry; back is quieter, duller and wetter. |
+| **Z** — toward you | Depth. Forward is louder and brighter, back is quieter and duller. Reverb is a separate control. |
 
 Overlap is the whole point. Two shapes sitting in the same place means those
 tracks share a frequency band *and* a pan position *and* are sounding at the
@@ -27,7 +27,7 @@ the fix.
 
 - Drop in stems, or load a demo session that is muddy on purpose
 - Drag to pan, drag vertically to tilt, drag the edges for high-pass, low-pass and stereo width
-- Push tracks forward and back on the depth rail
+- Push tracks forward and back on the depth rail, and set reverb on its own rail
 - Sculpt into a shape with a knife tool; the curve you draw is fitted to real filters
 - See masking as orange bands, with a one-click carve on the lower-priority track
 - Export the result as a WAV
@@ -51,6 +51,9 @@ the waveform — a shape only changes when *you* change it.
 4. **EQ.** Filter curves are read back analytically from unconnected biquads, so
    the outline bends the moment you move a control, whether or not audio is
    playing.
+5. **Depth.** The Z axis is K-weighted loudness, weighted by how much of the
+   loop a part actually occupies — not peak level, which comes out nearly
+   identical for every track.
 
 Masking is computed between voices rather than tracks, and weighted by how often
 the two actually sound at the same time. Two parts that never coincide do not
@@ -72,13 +75,32 @@ of that.
 - 5 test users, 10 minutes each. Kill if 3 or more cannot predict what a reshape gesture will do.
 - 1,000 visitors. Kill if under 5% upload stems, or under 1% export a finished mix.
 
+## Honest about what the numbers are
+
+The masking display is a **UX heuristic, not an acoustic measurement**. It
+combines spectral overlap, pan overlap, co-occurrence in time, relative
+loudness and depth separation into one severity figure. Pan is inferred from
+L/R energy, which ignores phase, correlation and precedence effects. Loudness
+uses an approximation of K-weighting, at reduced strength. It is meant to
+point at places worth listening to. It is not a masking detector.
+
+## Two variants, deliberately
+
+The **Room** view puts the field in perspective; **Flat** keeps depth as size
+alone. The 3D room looks better, which is not the same as reading better — a
+shape can appear narrower because the camera turned rather than because its
+audio changed. Both ship so the question can be settled by testing.
+
 ## Known limits
 
 - Voices are analysis and display only. The audio chain is still one per track,
   so you cannot EQ just the left-hand hi-hat. Splitting the source is out of
   scope here.
-- Carve applies a static notch, not dynamic or sidechained EQ.
-- Reverb is a single shared convolver, not per-track.
+- Carve applies static notches (up to four per track), not dynamic or sidechained EQ.
+- Reverb is a single shared convolver with per-track sends, not per-track units.
+- Analysis runs on the main thread, so a large session will pause while it loads.
+- Collision analysis recomputes every frame; fine for a handful of stems, not for forty.
+- The renderer is Canvas2D. It is not built for a big session yet.
 
 ## Running locally
 

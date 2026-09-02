@@ -280,6 +280,10 @@
         <button data-tool="sculpt">Draw</button>
         <button data-tool="erase">Erase</button>
       </div>
+      <div class="panel-toggles" id="viewMode">
+        <button data-mode="flat">Flat</button>
+        <button data-mode="room" class="on">Room</button>
+      </div>
       <button class="btn" id="btnDemo">Load demo session</button>
       <button class="btn" id="btnStems">Add your stems</button>
       <button class="btn" id="btnExport" disabled>Export mix</button>
@@ -366,6 +370,7 @@
             <div class="grp">Keys</div>
             <dt>Ctrl+Z</dt><dd>Undo · Ctrl+Shift+Z to redo</dd>
             <dt>T / R / G</dt><dd>Show or hide the timeline, track list, meters</dd>
+            <dt>Flat / Room</dt><dd>Two ways of drawing the same field. Flat keeps depth as size alone; Room puts it in perspective.</dd>
             <dt>Drag empty space</dt><dd>Orbit the room</dd>
             <dt>Ctrl + scroll</dt><dd>Zoom toward the pointer</dd>
             <dt>Zoom bar</dt><dd>Bottom left — slider zooms about the middle, “fit” resets everything</dd>
@@ -497,7 +502,7 @@
       <div class="xd-row hidden" id="xdStemRow"><label>Stems</label>
         <div style="display:flex;flex-direction:column;gap:8px">
           <label class="xd-check"><input type="checkbox" id="xdStemProcessed" checked>
-            Include my mix moves (unchecked exports the originals)</label>
+            Include my mix moves (unchecked writes the untouched source)</label>
           <label class="xd-check"><input type="checkbox" id="xdStemMuted">
             Include muted tracks</label>
         </div></div>
@@ -535,6 +540,7 @@ const DYN = 76, GATE = 0.095, MAX_EQ = 14;
    question, so it gets its own threshold: a band only counts if it is a
    real part of that sound, not a tail. */
 const MASK_GATE = 0.42;
+const MAX_CARVE = 4;
 let maskSense = 1;
 const PALETTE = ["#ff5a4e","#ffb03a","#8ede4a","#3fd8c8","#4d9bff","#a86bff","#ff6fc0","#ffd45e"];
 
@@ -623,6 +629,7 @@ function syncZoomUI() {
   if (zv) zv.textContent = Math.round(zoom * 100) + "%";
 }
 
+let flatMode = false;                 // variant A, for the comprehension test
 const zOf = depth => (1 - clamp(depth, 0, 1));           // 0 front .. 1 back
 const FLO = 0.06, FHI = 1.02;
 /* The visible slice of the spectrum. Narrow it and the whole room
@@ -652,6 +659,9 @@ function zoomFreq(atF, factor) {
 
 /* Rotate a world point into camera space. */
 function toCam(wx, wy, z01) {
+  // Flat: depth stops moving anything. Size, haze and stacking still carry it,
+  // but nothing on screen shifts because the camera moved.
+  if (flatMode) return { x: wx, y: wy - CAM.eyeY, z: 0 };
   const X = wx, Y = wy - CAM.eyeY, Z = (z01 - 0.5) * CAM.zSpan;
   const cy = Math.cos(yaw), sy = Math.sin(yaw);
   const x1 = X * cy + Z * sy, z1 = -X * sy + Z * cy;
@@ -667,7 +677,9 @@ function project(wx, wy, z01) {
   return { x: v.cx + c.x * v.halfW * s, y: v.horizon - c.y * v.halfH * s, s, depth: d };
 }
 /* How much a body at this depth is magnified, for sizing only. */
-const scaleAt = z01 => CAM.focal / Math.max(0.35, CAM.dist + toCam(0, CAM.eyeY, z01).z);
+const scaleAt = z01 => flatMode
+  ? 0.62 + 0.38 * (1 - z01)
+  : CAM.focal / Math.max(0.35, CAM.dist + toCam(0, CAM.eyeY, z01).z);
 const persp = d => scaleAt(zOf(d));
 
 /* ---------- inverting the view ----------
@@ -949,7 +961,7 @@ class Track {
     this.pan = 0; this.width = 1; this.tilt = 0; this.verb = 0;
     this.hp = FMIN; this.lp = FMAX;
     this.eq = [];
-    this.carveF = 0; this.carveDb = 0; this.carveQ = 2.4;
+    this.carves = [];               // [{f, db, q}] - one per collision resolved
     this.muted = false; this.soloed = false;
 
     const envd = measureEnvelope(buffer);
@@ -1019,9 +1031,9 @@ class Track {
 
   defaults() {
     return { pan: 0, width: 1, tilt: 0, verb: 0, hp: FMIN, lp: FMAX,
-             carveF: 0, carveDb: 0, depth: this.depth0 };
+             carves: [], depth: this.depth0 };
   }
-  reset() { Object.assign(this, this.defaults()); this.eq = []; this.sculpt = new Float32Array(NBANDS); this.push(); }
+  reset() { Object.assign(this, this.defaults()); this.eq = []; this.carves = []; this.sculpt = new Float32Array(NBANDS); this.push(); }
 
   ensureResp() {
     if (this.resp || !ctxA) return;
@@ -1054,9 +1066,14 @@ class Track {
       r.ls.gain.value = -this.tilt * 0.55;
       r.hs.gain.value = this.tilt;
       r.air.gain.value = this.airDb();
-      r.carve.frequency.value = clamp(this.carveF || 1000, 40, 16000);
-      r.carve.gain.value = this.carveDb; r.carve.Q.value = this.carveQ;
-      [r.hp, r.lp, r.ls, r.hs, r.air, r.carve].forEach(f => {
+      this.carves.forEach(c => {
+        r.carve.frequency.value = clamp(c.f, 40, 16000);
+        r.carve.gain.value = c.db; r.carve.Q.value = c.q;
+        r.carve.getFrequencyResponse(bandF, r.mag, r.ph);
+        for (let i = 0; i < NBANDS; i++)
+          this.addBase[i] += 20 * Math.log10(Math.max(r.mag[i], 1e-6));
+      });
+      [r.hp, r.lp, r.ls, r.hs, r.air].forEach(f => {
         f.getFrequencyResponse(bandF, r.mag, r.ph);
         for (let i = 0; i < NBANDS; i++) this.addBase[i] += 20 * Math.log10(Math.max(r.mag[i], 1e-6));
       });
@@ -1083,7 +1100,10 @@ class Track {
     const ls = ctx.createBiquadFilter(); ls.type = "lowshelf";  ls.frequency.value = 280;
     const hs = ctx.createBiquadFilter(); hs.type = "highshelf"; hs.frequency.value = 2600;
     const air = ctx.createBiquadFilter(); air.type = "highshelf"; air.frequency.value = 4500;
-    const carve = ctx.createBiquadFilter(); carve.type = "peaking";
+    const carves = [];
+    for (let i = 0; i < MAX_CARVE; i++) {
+      const c = ctx.createBiquadFilter(); c.type = "peaking"; c.gain.value = 0; carves.push(c);
+    }
     const bells = [];
     for (let i = 0; i < MAX_EQ; i++) {
       const b = ctx.createBiquadFilter(); b.type = "peaking"; b.gain.value = 0; bells.push(b);
@@ -1097,7 +1117,8 @@ class Track {
     const merge = ctx.createChannelMerger(2);
     const gain = ctx.createGain(), pan = ctx.createStereoPanner(), send = ctx.createGain();
 
-    let tail = src.connect(hp).connect(lp).connect(ls).connect(hs).connect(air).connect(carve);
+    let tail = src.connect(hp).connect(lp).connect(ls).connect(hs).connect(air);
+    carves.forEach(c => { tail = tail.connect(c); });
     bells.forEach(b => { tail = tail.connect(b); });
     tail.connect(split);
     split.connect(mL, 0); split.connect(mR, 1);
@@ -1110,7 +1131,7 @@ class Track {
     merge.connect(gain).connect(pan).connect(dest);
     pan.connect(send).connect(reverbFor(ctx, dest));
 
-    const n = { src, hp, lp, ls, hs, air, carve, bells, wGain, gain, pan, send };
+    const n = { src, hp, lp, ls, hs, air, carves, bells, wGain, gain, pan, send };
     this.applyTo(n, ctx);
     return n;
   }
@@ -1123,8 +1144,12 @@ class Track {
     S(n.ls.gain, -this.tilt * 0.55);
     S(n.hs.gain, this.tilt);
     S(n.air.gain, this.airDb());
-    S(n.carve.frequency, clamp(this.carveF || 1000, 40, 16000));
-    S(n.carve.gain, this.carveDb); n.carve.Q.value = this.carveQ;
+    for (let i = 0; i < MAX_CARVE; i++) {
+      const c = this.carves[i], b = n.carves[i];
+      S(b.frequency, c ? clamp(c.f, 40, 16000) : 1000);
+      S(b.gain, c ? c.db : 0);
+      b.Q.value = c ? c.q : 1;
+    }
     for (let i = 0; i < MAX_EQ; i++) {
       const e = this.eq[i], b = n.bells[i];
       S(b.frequency, e ? clamp(e.f, 30, 17000) : 1000);
@@ -1427,9 +1452,17 @@ function carveCollision(col) {
   const loser = tracks.indexOf(col.a) > tracks.indexOf(col.b) ? col.a : col.b;
   const winner = loser === col.a ? col.b : col.a;
   const oct = Math.max(0.35, Math.log2(col.hi / col.lo));
-  loser.carveF = col.centre;
-  loser.carveQ = clamp(1.2 / oct * 1.6, 0.5, 4);
-  loser.carveDb = clamp(loser.carveDb - 4.5, -14, 0);
+  const q = clamp(1.2 / oct * 1.6, 0.5, 4);
+  // deepen an existing notch if this collision is in the same place,
+  // otherwise add another - carving 300 Hz must not move the 3 kHz notch
+  const near = loser.carves.find(c => Math.abs(Math.log2(c.f / col.centre)) < 0.4);
+  if (near) { near.db = clamp(near.db - 4.5, -14, -1); near.q = q; }
+  else if (loser.carves.length < MAX_CARVE) {
+    loser.carves.push({ f: col.centre, db: -4.5, q });
+  } else {
+    const weakest = loser.carves.reduce((a, b) => a.db > b.db ? a : b);
+    weakest.f = col.centre; weakest.db = -4.5; weakest.q = q;
+  }
   loser.push();
   toast(`Carved ${Math.round(col.centre)} Hz out of ${loser.name} — ${winner.name} keeps the band · Ctrl+Z to undo`);
   renderRail();
@@ -2077,7 +2110,7 @@ function frame(ts) {
   drawGhost();
   drawBrush(mouse.y);
   dragHUD();
-  drawCube();
+  if (!flatMode) drawCube();
   const dt = Math.min(0.1, (ts - lastFrame) / 1000 || 0.016);
   lastFrame = ts;
   readMeters(dt);
@@ -2144,7 +2177,7 @@ function snapshot() {
     t: tracks.map(t => ({
       id: t.id, pan: t.pan, width: t.width, tilt: t.tilt, verb: t.verb, hp: t.hp, lp: t.lp,
       eq: t.eq.map(n => ({ f: n.f, db: n.db, q: n.q })),
-      carveF: t.carveF, carveDb: t.carveDb, carveQ: t.carveQ,
+      carves: t.carves.map(c => ({ f: c.f, db: c.db, q: c.q })),
       depth: t.depth, muted: t.muted, soloed: t.soloed,
       sculpt: Array.from(t.sculpt)
     }))
@@ -2162,7 +2195,7 @@ function restore(json) {
     t.pan = rec.pan; t.width = rec.width; t.tilt = rec.tilt; t.verb = rec.verb || 0;
     t.hp = rec.hp; t.lp = rec.lp;
     t.eq = rec.eq.map(n => ({ ...n }));
-    t.carveF = rec.carveF; t.carveDb = rec.carveDb; t.carveQ = rec.carveQ;
+    t.carves = (rec.carves || []).map(c => ({ ...c }));
     t.depth = rec.depth; t.muted = rec.muted; t.soloed = rec.soloed;
     t.sculpt = Float32Array.from(rec.sculpt);
   });
@@ -2274,7 +2307,7 @@ function sculptAt(t, v, mx, my, final) {
 
 cv.addEventListener("pointerdown", e => {
   const { x, y } = pos(e);
-  if (inCube(x, y)) {
+  if (!flatMode && inCube(x, y)) {
     cv.setPointerCapture(e.pointerId);
     drag = { mode: "cube", x0: x, y0: y, yaw0: yawT, pitch0: pitchT,
              face: cubeFaceAt(x, y), moved: 0 };
@@ -2308,7 +2341,7 @@ cv.addEventListener("pointerdown", e => {
   if (!hv) {
     // empty space orbits the room; a click without a drag just deselects
     cv.setPointerCapture(e.pointerId);
-    drag = e.shiftKey
+    drag = (e.shiftKey || flatMode)
       ? { mode: "slide", x0: x, y0: y, ox: viewOff.x, oy: viewOff.y, moved: 0 }
       : { mode: "orbit", x0: x, y0: y, yaw0: yawT, pitch0: pitchT, moved: 0 };
     return;
@@ -2331,8 +2364,8 @@ cv.addEventListener("pointermove", e => {
   const { x, y } = pos(e);
   mouse = { x, y };
   if (!drag) {
-    cubeHover = inCube(x, y) ? (cubeFaceAt(x, y) || {}).label || null : null;
-    if (inCube(x, y)) { cv.style.cursor = cubeHover ? "pointer" : "grab"; return; }
+    cubeHover = (!flatMode && inCube(x, y)) ? (cubeFaceAt(x, y) || {}).label || null : null;
+    if (!flatMode && inCube(x, y)) { cv.style.cursor = cubeHover ? "pointer" : "grab"; return; }
     const r = hitRail(x, y) || hitVerbRail(x, y);
     gizmoHover = selected && tool === "move" ? gizmoAt(selected, x, y) : null;
     if (gizmoHover) { cv.style.cursor = "move"; return; }
@@ -2589,7 +2622,8 @@ function renderRailNums() {
     let deep = 0;
     for (let i = 0; i < NBANDS; i++) if (Math.abs(t.addEq[i]) > Math.abs(deep)) deep = t.addEq[i];
     el.querySelector(".v-eq").textContent =
-      (Math.abs(deep) < 0.6 ? "\u2014" : (deep > 0 ? "+" : "") + deep.toFixed(0)) + (t.carveDb ? "+c" : "");
+      (Math.abs(deep) < 0.6 ? "\u2014" : (deep > 0 ? "+" : "") + deep.toFixed(0)) +
+      (t.carves.length ? "+" + t.carves.length + "c" : "");
     el.classList.toggle("dimmed", !!selected && selected !== t);
     const lit = Math.max(...t.voices.map(v => v.lit));
     el.classList.toggle("silent", !t.audible() || (playing && lit < 0.2));
@@ -3543,29 +3577,38 @@ const xd = { fmt: "wav", rate: 44100, ch: 2, depth: 16, kbps: 256,
 function renderLength() { return Math.max(loopDur, 0.5) * xd.loops + xd.tail; }
 
 /* Render the mix, or one soloed track, to an AudioBuffer. */
+/* A single stem is rendered on its own terms. It must not inherit the
+   master fader, and it must not consult the global solo state - if some
+   other track happens to be soloed, levelScale() would return 0 and the
+   stem would come out silent. */
 async function renderTo(only, processed) {
   const dur = renderLength();
   const off = new OfflineAudioContext(xd.ch, Math.ceil(dur * xd.rate), xd.rate);
   const m = off.createGain();
-  m.gain.value = 0.85 * Math.pow(10, masterDb / 20);
+  // stems are pre-master; only the full mix takes the fader
+  m.gain.value = only ? 1 : 0.85 * Math.pow(10, masterDb / 20);
   m.connect(off.destination);
-  const list = only ? [only] : tracks;
-  list.forEach(t => {
-    if (!only && !t.audible()) return;
-    if (processed === false) {
-      // originals: straight from the buffer, no processing at all
-      const src = off.createBufferSource();
-      src.buffer = t.buffer; src.loop = true;
-      src.connect(m); src.start(0);
-    } else {
-      const saveM = t.muted, saveS = t.soloed;
-      if (only) { t.muted = false; t.soloed = false; }
-      const n = t.build(off, m);
-      n.src.start(0);
-      t.muted = saveM; t.soloed = saveS;
-    }
-  });
-  return off.startRendering();
+
+  if (only && processed === false) {
+    // untouched source: no chain, no master, nothing
+    const src = off.createBufferSource();
+    src.buffer = only.buffer; src.loop = true;
+    src.connect(off.destination); src.start(0);
+    return off.startRendering();
+  }
+
+  // neutralise solo/mute for the duration of the render, then put it back
+  const saved = tracks.map(t => ({ t, m: t.muted, s: t.soloed }));
+  if (only) tracks.forEach(t => { t.soloed = false; t.muted = t !== only; });
+  try {
+    (only ? [only] : tracks).forEach(t => {
+      if (!only && !t.audible()) return;
+      t.build(off, m).src.start(0);
+    });
+    return await off.startRendering();
+  } finally {
+    saved.forEach(r => { r.t.muted = r.m; r.t.soloed = r.s; });
+  }
 }
 
 /* ---------- WAV, 16 / 24 / 32-float ---------- */
@@ -3589,9 +3632,11 @@ function encodeWAV(buf, depth) {
   let o = 44;
   for (let i = 0; i < len; i++) {
     for (let c = 0; c < nch; c++) {
+      // float keeps everything, including peaks above 0 dBFS - that is the
+      // whole reason to pick it. Only the integer paths clamp.
+      if (float) { dv.setFloat32(o, chans[c][i], true); o += 4; continue; }
       const v = clamp(chans[c][i], -1, 1);
-      if (float) { dv.setFloat32(o, v, true); o += 4; }
-      else if (depth === 24) {
+      if (depth === 24) {
         const s24 = Math.round(v < 0 ? v * 8388608 : v * 8388607);
         dv.setUint8(o, s24 & 255); dv.setUint8(o + 1, (s24 >> 8) & 255);
         dv.setUint8(o + 2, (s24 >> 16) & 255); o += 3;
@@ -3803,7 +3848,7 @@ function xdSyncUI() {
     wav: "Uncompressed, exactly what you hear. 24-bit is the usual choice for anything you will keep working on.",
     mp3: "The encoder is fetched the first time you use it, so this one needs a connection once.",
     other: "These use the browser's own recorder, which captures in real time \u2014 a two-loop export takes as long as it plays.",
-    stems: "One WAV per track, delivered as a single zip. Each is rendered on its own, at full length, so they line up when you drop them into a DAW."
+    stems: "One WAV per track, delivered as a single zip. Each is rendered on its own and pre-master, so the fader does not colour them, and they line up in a DAW."
   };
   document.getElementById("xdNote").textContent = notes[xd.fmt];
 
@@ -3868,8 +3913,8 @@ function toggleBypass() {
   const btn = document.getElementById("btnBypass");
   if (!bypass) {
     bypassStash = tracks.map(t => ({ pan: t.pan, width: t.width, tilt: t.tilt, verb: t.verb, hp: t.hp, lp: t.lp,
-      eq: t.eq.map(n => ({ ...n })), carveDb: t.carveDb, carveF: t.carveF, depth: t.depth }));
-    tracks.forEach(t => { Object.assign(t, t.defaults()); t.eq = []; });
+      eq: t.eq.map(n => ({ ...n })), carves: t.carves.map(c => ({ ...c })), depth: t.depth }));
+    tracks.forEach(t => { Object.assign(t, t.defaults()); t.eq = []; t.carves = []; });
     bypass = true; btn.textContent = "Back to my mix";
   } else {
     tracks.forEach((t, i) => Object.assign(t, bypassStash[i]));
@@ -3903,6 +3948,22 @@ document.getElementById("btnExport").addEventListener("click", openExport);
 document.getElementById("maskSense").addEventListener("input", e => {
   maskSense = +e.target.value;
 });
+
+/* Variant switch. The 3D room is prettier; that is not the same as being
+   easier to read. Both are here so the question can be settled by testing
+   rather than by taste. */
+function setViewMode(mode) {
+  flatMode = mode === "flat";
+  if (flatMode) { yaw = yawT = 0; pitch = pitchT = 0; }
+  else { yawT = 0.40; pitchT = 0.17; }
+  planeCache.clear();
+  document.querySelectorAll("#viewMode button").forEach(b =>
+    b.classList.toggle("on", b.dataset.mode === mode));
+  document.getElementById("zoombar").classList.toggle("flat-view", flatMode);
+  toast(flatMode ? "Flat field \u2014 depth is size only" : "3D room");
+}
+document.querySelectorAll("#viewMode button").forEach(b =>
+  b.addEventListener("click", () => setViewMode(b.dataset.mode)));
 document.getElementById("btnBypass").addEventListener("click", toggleBypass);
 document.getElementById("btnReset").addEventListener("click", () => {
   mark();
