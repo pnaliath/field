@@ -220,7 +220,8 @@ void MultiBusView::paint (HWND hwnd)
     const int labelX = 18;
     const int labelW = 150;
     const int meterX = 178;
-    const int meterW = std::max (180, client.right - 178 - 250);
+    const int availableMeterWidth = static_cast<int> (client.right) - 178 - 250;
+    const int meterW = std::max (180, availableMeterWidth);
     const int readoutX = meterX + meterW + 16;
 
     for (int i = 0; i < kInputBusCount; ++i)
