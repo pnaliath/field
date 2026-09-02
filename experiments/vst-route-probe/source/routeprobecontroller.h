@@ -29,7 +29,7 @@ public:
     DELEGATE_REFCOUNT (Steinberg::Vst::EditControllerEx1)
 
 private:
-    void addReadOnlyString (const Steinberg::TChar* title, Steinberg::Vst::ParamID id,
+    void addReadOnlyString (const Steinberg::Vst::TChar* title, Steinberg::Vst::ParamID id,
                             const char* initial = "undefined");
     void setStringParam (Steinberg::Vst::ParamID id, const std::string& value);
     void rememberObservedName (const std::string& value);
