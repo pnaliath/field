@@ -1,16 +1,23 @@
 #include "routeprobecontroller.h"
 #include "routeprobeids.h"
+#include "routeprobeview.h"
 
 #include "pluginterfaces/base/ustring.h"
 #include "public.sdk/source/vst/utility/stringconvert.h"
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 
 namespace FieldRouteProbe {
 
 using namespace Steinberg;
 using namespace Steinberg::Vst;
+
+namespace {
+constexpr ParamID kFirstDisplayParam = kCurrentChannelName;
+constexpr ParamID kLastDisplayParam = kRoutingProbeResult;
+}
 
 void Controller::addReadOnlyString (const TChar* title, ParamID id, const char* initial)
 {
@@ -19,18 +26,36 @@ void Controller::addReadOnlyString (const TChar* title, ParamID id, const char* 
     StringConvert::convert (initial, text);
     param->appendString (text);
     parameters.addParameter (param);
+
+    if (id >= kFirstDisplayParam && id <= kLastDisplayParam)
+    {
+        std::lock_guard<std::mutex> lock (displayMutex);
+        displayValues[static_cast<size_t> (id - kFirstDisplayParam)] = initial;
+    }
 }
 
 void Controller::setStringParam (ParamID id, const std::string& value)
 {
     auto* param = static_cast<StringListParameter*> (parameters.getParameter (id));
-    if (!param)
-        return;
+    if (param)
+    {
+        String128 text {};
+        auto clipped = value.substr (0, 120);
+        StringConvert::convert (clipped, text);
+        param->replaceString (0, text);
+    }
 
-    String128 text {};
-    auto clipped = value.substr (0, 120);
-    StringConvert::convert (clipped, text);
-    param->replaceString (0, text);
+    if (id >= kFirstDisplayParam && id <= kLastDisplayParam)
+    {
+        std::lock_guard<std::mutex> lock (displayMutex);
+        displayValues[static_cast<size_t> (id - kFirstDisplayParam)] = value;
+    }
+}
+
+std::array<std::string, 10> Controller::getDisplayValues () const
+{
+    std::lock_guard<std::mutex> lock (displayMutex);
+    return displayValues;
 }
 
 void Controller::rememberObservedName (const std::string& value)
@@ -87,6 +112,13 @@ tresult PLUGIN_API Controller::initialize (FUnknown* context)
 tresult PLUGIN_API Controller::setComponentState (IBStream*)
 {
     return kResultOk;
+}
+
+IPlugView* PLUGIN_API Controller::createView (FIDString name)
+{
+    if (name && std::strcmp (name, ViewType::kEditor) == 0)
+        return new RouteProbeView (this);
+    return nullptr;
 }
 
 tresult PLUGIN_API Controller::setChannelContextInfos (IAttributeList* list)
