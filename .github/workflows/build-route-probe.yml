@@ -1,0 +1,46 @@
+name: Build Field Route Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/vst-route-probe
+    paths:
+      - experiments/vst-route-probe/**
+      - .github/workflows/build-route-probe.yml
+
+jobs:
+  windows-vst3:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: >-
+          cmake -S experiments/vst-route-probe -B build/route-probe
+          -G "Visual Studio 17 2022" -A x64
+          -DSMTG_CREATE_PLUGIN_LINK=OFF
+
+      - name: Build VST3
+        run: cmake --build build/route-probe --config Release --target FieldRouteProbe
+
+      - name: Package VST3
+        shell: pwsh
+        run: |
+          $plugin = Get-ChildItem -Path build/route-probe -Recurse -Directory -Filter "*.vst3" | Select-Object -First 1
+          if (-not $plugin) {
+            Write-Host "Built tree:"
+            Get-ChildItem -Path build/route-probe -Recurse | Select-Object -First 300 FullName
+            throw "No .vst3 bundle found after build"
+          }
+          Write-Host "Found VST3: $($plugin.FullName)"
+          Compress-Archive -Path $plugin.FullName -DestinationPath FieldRouteProbe-Windows-x64.zip -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FieldRouteProbe-Windows-x64
+          path: FieldRouteProbe-Windows-x64.zip
+          if-no-files-found: error
