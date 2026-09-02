@@ -1,0 +1,49 @@
+name: Build Field Multi-Input Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/vst-multi-input-probe
+    paths:
+      - experiments/vst-multi-input-probe/**
+      - .github/workflows/build-multi-input-probe.yml
+
+jobs:
+  windows-vst3:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: >-
+          cmake -S experiments/vst-multi-input-probe -B build/multi-input-probe
+          -G "Visual Studio 18 2026" -A x64
+          -DSMTG_CREATE_PLUGIN_LINK=OFF
+
+      - name: Build VST3
+        run: cmake --build build/multi-input-probe --config Release --target FieldMultiInputProbe
+
+      - name: Package VST3
+        shell: pwsh
+        run: |
+          $plugin = Get-ChildItem -Path build/multi-input-probe -Recurse -Directory -Filter "*.vst3" | Where-Object { $_.Name -eq "FieldMultiInputProbe.vst3" } | Select-Object -First 1
+          if (-not $plugin) {
+            $plugin = Get-ChildItem -Path build/multi-input-probe -Recurse -Directory -Filter "*.vst3" | Select-Object -First 1
+          }
+          if (-not $plugin) {
+            Write-Host "Built tree:"
+            Get-ChildItem -Path build/multi-input-probe -Recurse | Select-Object -First 300 FullName
+            throw "No .vst3 bundle found after build"
+          }
+          Write-Host "Found VST3: $($plugin.FullName)"
+          Compress-Archive -Path $plugin.FullName -DestinationPath FieldMultiInputProbe-Windows-x64.zip -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FieldMultiInputProbe-Windows-x64
+          path: FieldMultiInputProbe-Windows-x64.zip
+          if-no-files-found: error
