@@ -37,6 +37,9 @@ target_include_directories(FieldFLMetadataProbe PRIVATE
 target_compile_definitions(FieldFLMetadataProbe PRIVATE
     WIN32_LEAN_AND_MEAN
     NOMINMAX
+    UNICODE
+    _UNICODE
+    _CRT_SECURE_NO_WARNINGS
 )
 
 set_target_properties(FieldFLMetadataProbe PROPERTIES
