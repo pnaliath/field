@@ -3,6 +3,9 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <array>
+#include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -11,10 +14,11 @@
 
 namespace {
 
+constexpr int kMaxRoutes = 128;
 HINSTANCE gDllInstance = nullptr;
 
-char gLongName[] = "Field FL Metadata Probe";
-char gShortName[] = "FieldMeta";
+char gLongName[] = "Field V0.02 Reconstruct Probe";
+char gShortName[] = "FieldV002";
 
 TFruityPlugInfo gPluginInfo = {
     CurrentSDKVersion,
@@ -26,6 +30,13 @@ TFruityPlugInfo gPluginInfo = {
     0,  // output controllers
     0,  // output voices
     {}
+};
+
+enum class MonitorMode : int
+{
+    Reference = 0,
+    Reconstruct = 1,
+    Null = 2
 };
 
 struct InputMetadata
@@ -61,13 +72,44 @@ std::wstring ansiToWide (const std::string& text)
     return result;
 }
 
-class FieldFLMetadataProbe final : public TCPPFruityPlug
+float toDb (double linear)
+{
+    return static_cast<float> (20.0 * std::log10 (std::max (linear, 1.0e-6)));
+}
+
+void analyseStereo (PWAV32FS buffer, int length, float& rmsDb, float& peakDb)
+{
+    if (!buffer || length <= 0)
+    {
+        rmsDb = -120.0f;
+        peakDb = -120.0f;
+        return;
+    }
+
+    double sumSq = 0.0;
+    double peak = 0.0;
+    for (int i = 0; i < length; ++i)
+    {
+        const double l = buffer[i][0];
+        const double r = buffer[i][1];
+        sumSq += l * l + r * r;
+        peak = std::max (peak, std::max (std::abs (l), std::abs (r)));
+    }
+
+    const double rms = std::sqrt (sumSq / static_cast<double> (length * 2));
+    rmsDb = toDb (rms);
+    peakDb = toDb (peak);
+}
+
+class FieldV002ReconstructProbe final : public TCPPFruityPlug
 {
 public:
-    FieldFLMetadataProbe (int tag, TFruityPlugHost* host)
+    FieldV002ReconstructProbe (int tag, TFruityPlugHost* host)
         : TCPPFruityPlug (tag, host, gDllInstance)
     {
         Info = &gPluginInfo;
+        for (auto& value : routePeakDb)
+            value.store (-120.0f, std::memory_order_relaxed);
         PlugHost->Dispatcher (HostTag, FHD_WantIdle, 0, 2);
         refreshMetadata ();
     }
@@ -110,23 +152,117 @@ public:
 
     void _stdcall Eff_Render (PWAV32FS source, PWAV32FS dest, int length) override
     {
-        // Metadata-only diagnostic. The insert's normal audio is bit-transparent;
-        // routed sidechain inputs are deliberately NOT summed into output.
-        if (!source || !dest || length <= 0 || source == dest)
+        if (!dest || length <= 0)
             return;
-        std::memcpy (dest, source, static_cast<size_t> (length) * sizeof (TWAV32FS));
+
+        PWAV32FS scratch = PlugHost->TempBuffers[0];
+        if (scratch == source || scratch == dest)
+            scratch = PlugHost->TempBuffers[1];
+
+        if (!scratch || scratch == source || scratch == dest)
+        {
+            // Defensive fallback: preserve FL's normal summed audio rather than risk corruption.
+            if (source && source != dest)
+                std::memcpy (dest, source, static_cast<size_t> (length) * sizeof (TWAV32FS));
+            return;
+        }
+
+        std::memset (scratch, 0, static_cast<size_t> (length) * sizeof (TWAV32FS));
+        for (auto& value : routePeakDb)
+            value.store (-120.0f, std::memory_order_relaxed);
+
+        const int count = std::clamp (reportedRouteCount.load (std::memory_order_relaxed), 0, kMaxRoutes);
+        int live = 0;
+
+        for (int route = 1; route <= count; ++route)
+        {
+            TIOBuffer input {};
+            PlugHost->GetInBuffer (HostTag, static_cast<intptr_t> (route), &input);
+
+            if (!input.Buffer || (input.Flags & IO_Filled) == 0)
+                continue;
+
+            auto* routeBuffer = static_cast<PWAV32FS> (input.Buffer);
+            double routePeak = 0.0;
+
+            for (int i = 0; i < length; ++i)
+            {
+                const float l = routeBuffer[i][0];
+                const float r = routeBuffer[i][1];
+                scratch[i][0] += l;
+                scratch[i][1] += r;
+                routePeak = std::max (routePeak,
+                                      std::max (std::abs (static_cast<double> (l)),
+                                                std::abs (static_cast<double> (r))));
+            }
+
+            routePeakDb[static_cast<size_t> (route - 1)].store (
+                toDb (routePeak), std::memory_order_relaxed);
+            ++live;
+        }
+
+        liveRouteCount.store (live, std::memory_order_relaxed);
+
+        float refRms = -120.0f, refPeak = -120.0f;
+        float reconRms = -120.0f, reconPeak = -120.0f;
+        float nRms = -120.0f, nPeak = -120.0f;
+
+        analyseStereo (source, length, refRms, refPeak);
+        analyseStereo (scratch, length, reconRms, reconPeak);
+
+        // Compute null into a second FL-provided scratch buffer when possible.
+        PWAV32FS nullBuffer = PlugHost->TempBuffers[2];
+        if (nullBuffer && nullBuffer != source && nullBuffer != dest && nullBuffer != scratch)
+        {
+            for (int i = 0; i < length; ++i)
+            {
+                const float srcL = source ? source[i][0] : 0.0f;
+                const float srcR = source ? source[i][1] : 0.0f;
+                nullBuffer[i][0] = srcL - scratch[i][0];
+                nullBuffer[i][1] = srcR - scratch[i][1];
+            }
+            analyseStereo (nullBuffer, length, nRms, nPeak);
+        }
+
+        referenceRmsDb.store (refRms, std::memory_order_relaxed);
+        referencePeakDb.store (refPeak, std::memory_order_relaxed);
+        reconstructRmsDb.store (reconRms, std::memory_order_relaxed);
+        reconstructPeakDb.store (reconPeak, std::memory_order_relaxed);
+        nullRmsDb.store (nRms, std::memory_order_relaxed);
+        nullPeakDb.store (nPeak, std::memory_order_relaxed);
+
+        const auto currentMode = static_cast<MonitorMode> (mode.load (std::memory_order_relaxed));
+
+        if (currentMode == MonitorMode::Reference)
+        {
+            if (source && source != dest)
+                std::memcpy (dest, source, static_cast<size_t> (length) * sizeof (TWAV32FS));
+            else if (!source)
+                std::memset (dest, 0, static_cast<size_t> (length) * sizeof (TWAV32FS));
+        }
+        else if (currentMode == MonitorMode::Reconstruct)
+        {
+            std::memcpy (dest, scratch, static_cast<size_t> (length) * sizeof (TWAV32FS));
+        }
+        else
+        {
+            if (nullBuffer)
+                std::memcpy (dest, nullBuffer, static_cast<size_t> (length) * sizeof (TWAV32FS));
+            else
+                std::memset (dest, 0, static_cast<size_t> (length) * sizeof (TWAV32FS));
+        }
     }
 
 private:
     static LRESULT CALLBACK windowProc (HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
-        auto* self = reinterpret_cast<FieldFLMetadataProbe*> (
+        auto* self = reinterpret_cast<FieldV002ReconstructProbe*> (
             GetWindowLongPtrW (hwnd, GWLP_USERDATA));
 
         if (message == WM_NCCREATE)
         {
             auto* create = reinterpret_cast<CREATESTRUCTW*> (lParam);
-            self = static_cast<FieldFLMetadataProbe*> (create->lpCreateParams);
+            self = static_cast<FieldV002ReconstructProbe*> (create->lpCreateParams);
             SetWindowLongPtrW (hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR> (self));
         }
 
@@ -135,6 +271,9 @@ private:
 
         switch (message)
         {
+            case WM_LBUTTONUP:
+                self->handleClick (GET_X_LPARAM (lParam), GET_Y_LPARAM (lParam));
+                return 0;
             case WM_PAINT:
                 self->paint (hwnd);
                 return 0;
@@ -148,7 +287,8 @@ private:
     void refreshMetadata ()
     {
         const intptr_t countResult = PlugHost->Dispatcher (HostTag, FHD_GetNumInOut, 0, 0);
-        const int count = std::clamp (static_cast<int> (countResult), 0, 128);
+        const int count = std::clamp (static_cast<int> (countResult), 0, kMaxRoutes);
+        reportedRouteCount.store (count, std::memory_order_relaxed);
 
         std::vector<InputMetadata> next;
         next.reserve (static_cast<size_t> (count));
@@ -177,6 +317,22 @@ private:
         inputs = std::move (next);
     }
 
+    void handleClick (int x, int y)
+    {
+        if (y < 92 || y > 126)
+            return;
+
+        if (x >= 20 && x < 180)
+            mode.store (static_cast<int> (MonitorMode::Reference), std::memory_order_relaxed);
+        else if (x >= 190 && x < 350)
+            mode.store (static_cast<int> (MonitorMode::Reconstruct), std::memory_order_relaxed);
+        else if (x >= 360 && x < 520)
+            mode.store (static_cast<int> (MonitorMode::Null), std::memory_order_relaxed);
+
+        if (editorWindow)
+            InvalidateRect (editorWindow, nullptr, FALSE);
+    }
+
     void showEditor (HWND parent)
     {
         if (!parent)
@@ -190,20 +346,20 @@ private:
                 WNDCLASSEXW wc {};
                 wc.cbSize = sizeof (wc);
                 wc.style = CS_HREDRAW | CS_VREDRAW;
-                wc.lpfnWndProc = &FieldFLMetadataProbe::windowProc;
+                wc.lpfnWndProc = &FieldV002ReconstructProbe::windowProc;
                 wc.hInstance = gDllInstance;
                 wc.hCursor = LoadCursorW (nullptr, IDC_ARROW);
-                wc.lpszClassName = L"FieldFLMetadataProbeWindow";
+                wc.lpszClassName = L"FieldV002ReconstructProbeWindow";
                 RegisterClassExW (&wc);
                 registered = true;
             }
 
             editorWindow = CreateWindowExW (
                 0,
-                L"FieldFLMetadataProbeWindow",
+                L"FieldV002ReconstructProbeWindow",
                 L"",
                 WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
-                0, 0, 820, 520,
+                0, 0, 930, 610,
                 parent,
                 nullptr,
                 gDllInstance,
@@ -225,6 +381,17 @@ private:
             editorWindow = nullptr;
             EditorHandle = nullptr;
         }
+    }
+
+    static void drawButton (HDC dc, const RECT& rect, const wchar_t* text, bool active)
+    {
+        HBRUSH brush = CreateSolidBrush (active ? RGB (42, 126, 116) : RGB (31, 39, 49));
+        FillRect (dc, &rect, brush);
+        DeleteObject (brush);
+        FrameRect (dc, &rect, static_cast<HBRUSH> (GetStockObject (GRAY_BRUSH)));
+        SetTextColor (dc, active ? RGB (239, 248, 246) : RGB (190, 203, 217));
+        RECT textRect = rect;
+        DrawTextW (dc, text, -1, &textRect, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
     }
 
     void paint (HWND hwnd)
@@ -251,38 +418,57 @@ private:
 
         auto oldFont = SelectObject (dc, titleFont);
         SetTextColor (dc, RGB (232, 238, 245));
-        RECT r {20, 14, client.right - 20, 46};
-        DrawTextW (dc, L"FIELD — FL NATIVE INPUT METADATA PROBE", -1, &r,
+        RECT r {20, 12, client.right - 20, 44};
+        DrawTextW (dc, L"FIELD V0.02 - FL NATIVE ROUTE AUDIO RECONSTRUCTION", -1, &r,
                    DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
         SelectObject (dc, bodyFont);
         SetTextColor (dc, RGB (143, 160, 178));
-        r = {20, 48, client.right - 20, 88};
+        r = {20, 45, client.right - 20, 82};
         DrawTextW (dc,
-                   L"Reads FL Studio native route metadata. Each row is an input route reaching this single plugin instance.",
+                   L"REFERENCE = FL normal sum. RECONSTRUCT = sum of individual routed input buffers. NULL = Reference minus Reconstruct.",
                    -1, &r, DT_LEFT | DT_WORDBREAK);
 
-        SelectObject (dc, monoFont);
-        SetTextColor (dc, RGB (91, 210, 195));
-        wchar_t countText[128] {};
-        swprintf_s (countText, L"Host reports %d routed input(s)", static_cast<int> (inputs.size ())); 
-        r = {20, 90, client.right - 20, 118};
-        DrawTextW (dc, countText, -1, &r, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+        const auto currentMode = static_cast<MonitorMode> (mode.load (std::memory_order_relaxed));
+        RECT refButton {20, 92, 180, 126};
+        RECT reconButton {190, 92, 350, 126};
+        RECT nullButton {360, 92, 520, 126};
+        drawButton (dc, refButton, L"REFERENCE", currentMode == MonitorMode::Reference);
+        drawButton (dc, reconButton, L"RECONSTRUCT", currentMode == MonitorMode::Reconstruct);
+        drawButton (dc, nullButton, L"NULL TEST", currentMode == MonitorMode::Null);
 
-        const int startY = 126;
-        const int rowHeight = 43;
+        SelectObject (dc, monoFont);
+        wchar_t levels[320] {};
+        swprintf_s (
+            levels,
+            L"Routes: %d   Live: %d    REF RMS %+.1f / PK %+.1f dB    RECON RMS %+.1f / PK %+.1f dB    NULL RMS %+.1f / PK %+.1f dB",
+            reportedRouteCount.load (std::memory_order_relaxed),
+            liveRouteCount.load (std::memory_order_relaxed),
+            referenceRmsDb.load (std::memory_order_relaxed),
+            referencePeakDb.load (std::memory_order_relaxed),
+            reconstructRmsDb.load (std::memory_order_relaxed),
+            reconstructPeakDb.load (std::memory_order_relaxed),
+            nullRmsDb.load (std::memory_order_relaxed),
+            nullPeakDb.load (std::memory_order_relaxed));
+
+        const float nullPeak = nullPeakDb.load (std::memory_order_relaxed);
+        SetTextColor (dc, nullPeak < -80.0f ? RGB (104, 221, 137) : RGB (244, 171, 91));
+        r = {20, 134, client.right - 20, 162};
+        DrawTextW (dc, levels, -1, &r, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
         SelectObject (dc, bodyFont);
         SetTextColor (dc, RGB (111, 126, 143));
-        r = {20, startY - 25, client.right - 20, startY};
-        DrawTextW (dc, L"ROUTE     COLOR     MIXER INDEX     VISIBLE / USER NAME", -1, &r,
+        r = {20, 170, client.right - 20, 194};
+        DrawTextW (dc, L"ROUTE   COLOR   MIXER   NAME                                      LIVE PEAK", -1, &r,
                    DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
+        const int startY = 196;
+        const int rowHeight = 43;
         for (size_t i = 0; i < inputs.size (); ++i)
         {
             const auto& item = inputs[i];
             const int y = startY + static_cast<int> (i) * rowHeight;
-            if (y + rowHeight > client.bottom - 16)
+            if (y + rowHeight > client.bottom - 42)
                 break;
 
             HPEN linePen = CreatePen (PS_SOLID, 1, RGB (39, 48, 59));
@@ -294,11 +480,11 @@ private:
 
             wchar_t routeText[32] {};
             swprintf_s (routeText, L"%d", item.routeIndex);
-            RECT routeRect {20, y, 72, y + 34};
+            RECT routeRect {20, y, 70, y + 34};
             SetTextColor (dc, RGB (222, 229, 237));
             DrawTextW (dc, routeText, -1, &routeRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
-            RECT swatch {78, y + 7, 110, y + 29};
+            RECT swatch {76, y + 7, 108, y + 29};
             HBRUSH colorBrush = CreateSolidBrush (static_cast<COLORREF> (item.color & 0x00FFFFFF));
             FillRect (dc, &swatch, colorBrush);
             DeleteObject (colorBrush);
@@ -306,40 +492,34 @@ private:
 
             wchar_t indexText[32] {};
             swprintf_s (indexText, L"%d", item.mixerIndex);
-            RECT indexRect {126, y, 226, y + 34};
-            SetTextColor (dc, RGB (222, 229, 237));
+            RECT indexRect {124, y, 194, y + 34};
             DrawTextW (dc, indexText, -1, &indexRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
-            std::string display;
-            if (!item.visibleName.empty ())
-                display = item.visibleName;
-            if (!item.userName.empty () && item.userName != item.visibleName)
-                display += (display.empty () ? "" : " / ") + item.userName;
+            std::string display = !item.visibleName.empty () ? item.visibleName : item.userName;
             if (display.empty ())
                 display = "(unnamed)";
-
             const auto wide = ansiToWide (display);
-            RECT nameRect {238, y, client.right - 142, y + 34};
+            RECT nameRect {204, y, client.right - 150, y + 34};
             SetTextColor (dc, RGB (207, 218, 229));
             DrawTextW (dc, wide.c_str (), -1, &nameRect,
                        DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
 
-            wchar_t rawColor[48] {};
-            swprintf_s (rawColor, L"0x%08X", static_cast<unsigned int> (item.color));
-            RECT rawRect {client.right - 132, y, client.right - 20, y + 34};
-            SetTextColor (dc, RGB (124, 139, 156));
-            DrawTextW (dc, rawColor, -1, &rawRect, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
+            float peak = -120.0f;
+            if (item.routeIndex >= 1 && item.routeIndex <= kMaxRoutes)
+                peak = routePeakDb[static_cast<size_t> (item.routeIndex - 1)].load (std::memory_order_relaxed);
+            wchar_t peakText[48] {};
+            swprintf_s (peakText, L"%+.1f dB", peak);
+            RECT peakRect {client.right - 140, y, client.right - 20, y + 34};
+            SetTextColor (dc, peak > -90.0f ? RGB (104, 221, 137) : RGB (105, 119, 135));
+            DrawTextW (dc, peakText, -1, &peakRect, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
         }
 
-        if (inputs.empty ())
-        {
-            SelectObject (dc, bodyFont);
-            SetTextColor (dc, RGB (245, 166, 91));
-            r = {20, 150, client.right - 20, 205};
-            DrawTextW (dc,
-                       L"No routed inputs reported. Create mixer routes or sidechains into this track, then change routing or reopen the editor.",
-                       -1, &r, DT_LEFT | DT_WORDBREAK);
-        }
+        SelectObject (dc, bodyFont);
+        SetTextColor (dc, RGB (143, 160, 178));
+        r = {20, client.bottom - 36, client.right - 20, client.bottom - 10};
+        DrawTextW (dc,
+                   L"For the cleanest test, load this on Master and do not place audio generators directly on the Master track. Start with RECONSTRUCT, then click NULL TEST.",
+                   -1, &r, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
 
         SelectObject (dc, oldFont);
         DeleteObject (titleFont);
@@ -350,6 +530,18 @@ private:
 
     HWND editorWindow = nullptr;
     std::vector<InputMetadata> inputs;
+
+    std::atomic<int> mode {static_cast<int> (MonitorMode::Reconstruct)};
+    std::atomic<int> reportedRouteCount {0};
+    std::atomic<int> liveRouteCount {0};
+    std::array<std::atomic<float>, kMaxRoutes> routePeakDb;
+
+    std::atomic<float> referenceRmsDb {-120.0f};
+    std::atomic<float> referencePeakDb {-120.0f};
+    std::atomic<float> reconstructRmsDb {-120.0f};
+    std::atomic<float> reconstructPeakDb {-120.0f};
+    std::atomic<float> nullRmsDb {-120.0f};
+    std::atomic<float> nullPeakDb {-120.0f};
 };
 
 } // namespace
@@ -364,5 +556,5 @@ BOOL WINAPI DllMain (HINSTANCE instance, DWORD reason, LPVOID)
 extern "C" __declspec(dllexport) TFruityPlug* _stdcall
 CreatePlugInstance (TFruityPlugHost* host, int tag)
 {
-    return new FieldFLMetadataProbe (tag, host);
+    return new FieldV002ReconstructProbe (tag, host);
 }
