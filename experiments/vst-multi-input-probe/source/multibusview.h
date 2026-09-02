@@ -3,6 +3,9 @@
 #include "public.sdk/source/common/pluginview.h"
 
 #if SMTG_OS_WINDOWS
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #endif
 
