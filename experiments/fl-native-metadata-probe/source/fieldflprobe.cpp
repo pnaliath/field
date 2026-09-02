@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -19,8 +20,8 @@ TFruityPlugInfo gPluginInfo = {
     CurrentSDKVersion,
     gLongName,
     gShortName,
-    0,  // effect plugin; no generator/controller flags needed
-    0,  // parameters
+    0,  // effect plugin
+    0,  // params
     0,  // polyphony
     0,  // output controllers
     0,  // output voices
@@ -29,8 +30,8 @@ TFruityPlugInfo gPluginInfo = {
 
 struct InputMetadata
 {
-    int routeIndex = 0;   // 1-based index used by FHD_GetInName/GetInBuffer
-    int mixerIndex = -1;  // real FL mixer index returned by host
+    int routeIndex = 0;
+    int mixerIndex = -1;
     int color = 0;
     std::string userName;
     std::string visibleName;
@@ -44,6 +45,20 @@ std::string boundedString (const char* text, size_t capacity)
     while (len < capacity && text[len] != '\0')
         ++len;
     return std::string (text, len);
+}
+
+std::wstring ansiToWide (const std::string& text)
+{
+    if (text.empty ())
+        return {};
+    const int needed = MultiByteToWideChar (
+        CP_ACP, 0, text.data (), static_cast<int> (text.size ()), nullptr, 0);
+    if (needed <= 0)
+        return std::wstring (text.begin (), text.end ());
+    std::wstring result (static_cast<size_t> (needed), L'\0');
+    MultiByteToWideChar (
+        CP_ACP, 0, text.data (), static_cast<int> (text.size ()), result.data (), needed);
+    return result;
 }
 
 class FieldFLMetadataProbe final : public TCPPFruityPlug
@@ -95,9 +110,8 @@ public:
 
     void _stdcall Eff_Render (PWAV32FS source, PWAV32FS dest, int length) override
     {
-        // Metadata probe only: exact pass-through of the normal insert signal.
-        // Routed sidechain inputs are deliberately NOT mixed into the output,
-        // so this diagnostic plugin cannot create a +6 dB parallel sum.
+        // Metadata-only diagnostic. The insert's normal audio is bit-transparent;
+        // routed sidechain inputs are deliberately NOT summed into output.
         if (!source || !dest || length <= 0 || source == dest)
             return;
         std::memcpy (dest, source, static_cast<size_t> (length) * sizeof (TWAV32FS));
@@ -106,7 +120,7 @@ public:
 private:
     static LRESULT CALLBACK windowProc (HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
-        FieldFLMetadataProbe* self = reinterpret_cast<FieldFLMetadataProbe*> (
+        auto* self = reinterpret_cast<FieldFLMetadataProbe*> (
             GetWindowLongPtrW (hwnd, GWLP_USERDATA));
 
         if (message == WM_NCCREATE)
@@ -223,7 +237,6 @@ private:
         HBRUSH background = CreateSolidBrush (RGB (16, 20, 26));
         FillRect (dc, &client, background);
         DeleteObject (background);
-
         SetBkMode (dc, TRANSPARENT);
 
         HFONT titleFont = CreateFontW (-25, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
@@ -246,7 +259,7 @@ private:
         SetTextColor (dc, RGB (143, 160, 178));
         r = {20, 48, client.right - 20, 88};
         DrawTextW (dc,
-                   L"Reads FL Studio's native routing metadata with FHD_GetInName. Each row is an input route reaching this single plugin instance.",
+                   L"Reads FL Studio native route metadata. Each row is an input route reaching this single plugin instance.",
                    -1, &r, DT_LEFT | DT_WORDBREAK);
 
         SelectObject (dc, monoFont);
@@ -297,26 +310,19 @@ private:
             SetTextColor (dc, RGB (222, 229, 237));
             DrawTextW (dc, indexText, -1, &indexRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
-            const std::string display = !item.userName.empty ()
-                ? item.visibleName + " / " + item.userName
-                : item.visibleName;
+            std::string display;
+            if (!item.visibleName.empty ())
+                display = item.visibleName;
+            if (!item.userName.empty () && item.userName != item.visibleName)
+                display += (display.empty () ? "" : " / ") + item.userName;
+            if (display.empty ())
+                display = "(unnamed)";
 
-            std::wstring wide;
-            if (!display.empty ())
-            {
-                const int needed = MultiByteToWideChar (CP_UTF8, 0, display.c_str (), -1, nullptr, 0);
-                if (needed > 1)
-                {
-                    wide.resize (static_cast<size_t> (needed - 1));
-                    MultiByteToWideChar (CP_UTF8, 0, display.c_str (), -1, wide.data (), needed);
-                }
-            }
-            if (wide.empty ())
-                wide = L"(unnamed)";
-
+            const auto wide = ansiToWide (display);
             RECT nameRect {238, y, client.right - 142, y + 34};
             SetTextColor (dc, RGB (207, 218, 229));
-            DrawTextW (dc, wide.c_str (), -1, &nameRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+            DrawTextW (dc, wide.c_str (), -1, &nameRect,
+                       DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
 
             wchar_t rawColor[48] {};
             swprintf_s (rawColor, L"0x%08X", static_cast<unsigned int> (item.color));
@@ -331,7 +337,7 @@ private:
             SetTextColor (dc, RGB (245, 166, 91));
             r = {20, 150, client.right - 20, 205};
             DrawTextW (dc,
-                       L"No routed inputs reported. Create mixer routes/sidechains into the track containing this plugin, then reopen or change routing.",
+                       L"No routed inputs reported. Create mixer routes or sidechains into this track, then change routing or reopen the editor.",
                        -1, &r, DT_LEFT | DT_WORDBREAK);
         }
 
