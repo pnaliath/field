@@ -26,6 +26,7 @@ struct SharedProbeState
     std::atomic<uint64_t> processBlocks {0};
     std::atomic<int> numInputsSeen {0};
     std::atomic<int> numOutputsSeen {0};
+    std::atomic<bool> parallelRouteDetected {false};
 };
 
 inline SharedProbeState& sharedProbeState ()
