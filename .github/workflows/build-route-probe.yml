@@ -8,6 +8,12 @@ on:
     paths:
       - experiments/vst-route-probe/**
       - .github/workflows/build-route-probe.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - experiments/vst-route-probe/**
+      - .github/workflows/build-route-probe.yml
 
 jobs:
   windows-vst3:
