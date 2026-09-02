@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(FieldRouteProbe
-    VERSION 0.1.0.0
+    VERSION 0.2.0.0
     DESCRIPTION "Diagnostic VST3 for probing host channel and routing metadata"
 )
 
@@ -26,12 +26,18 @@ smtg_add_vst3plugin(FieldRouteProbe
     source/routeprobeprocessor.h
     source/routeprobecontroller.cpp
     source/routeprobecontroller.h
+    source/routeprobeview.cpp
+    source/routeprobeview.h
     source/routeprobeids.h
     source/factory.cpp
     source/version.h
 )
 
 target_link_libraries(FieldRouteProbe PRIVATE sdk)
+
+if (WIN32)
+    target_link_libraries(FieldRouteProbe PRIVATE user32 gdi32)
+endif()
 
 target_compile_features(FieldRouteProbe PRIVATE cxx_std_17)
 
