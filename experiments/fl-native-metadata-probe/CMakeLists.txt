@@ -26,7 +26,7 @@ add_library(FieldV002ReconstructProbe SHARED
     ${FLSDK_DIR}/fp_cplug.cpp
     ${FLSDK_DIR}/fp_extra.cpp
     ${FLSDK_DIR}/fp_pathmanager.cpp
-    source/fieldflprobe.cpp
+    source/fieldv002build.cpp
 )
 
 target_include_directories(FieldV002ReconstructProbe PRIVATE
