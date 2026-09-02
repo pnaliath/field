@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - experiment/vst-multi-input-probe
+      - fix/vst-multi-input-parallel-routing
     paths:
       - experiments/vst-multi-input-probe/**
       - .github/workflows/build-multi-input-probe.yml
