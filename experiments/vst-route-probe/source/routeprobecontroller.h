@@ -3,6 +3,7 @@
 #include "public.sdk/source/vst/vsteditcontroller.h"
 #include "pluginterfaces/vst/ivstchannelcontextinfo.h"
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -28,7 +29,8 @@ public:
     DELEGATE_REFCOUNT (Steinberg::Vst::EditControllerEx1)
 
 private:
-    void addReadOnlyString (const char16_t* title, Steinberg::Vst::ParamID id, const char* initial = "undefined");
+    void addReadOnlyString (const Steinberg::TChar* title, Steinberg::Vst::ParamID id,
+                            const char* initial = "undefined");
     void setStringParam (Steinberg::Vst::ParamID id, const std::string& value);
     void rememberObservedName (const std::string& value);
     std::string joinedObservedNames () const;
