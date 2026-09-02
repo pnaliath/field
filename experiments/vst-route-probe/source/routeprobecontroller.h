@@ -3,7 +3,9 @@
 #include "public.sdk/source/vst/vsteditcontroller.h"
 #include "pluginterfaces/vst/ivstchannelcontextinfo.h"
 
+#include <array>
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -21,6 +23,9 @@ public:
     Steinberg::tresult PLUGIN_API initialize (Steinberg::FUnknown* context) SMTG_OVERRIDE;
     Steinberg::tresult PLUGIN_API setComponentState (Steinberg::IBStream* state) SMTG_OVERRIDE;
     Steinberg::tresult PLUGIN_API setChannelContextInfos (Steinberg::Vst::IAttributeList* list) SMTG_OVERRIDE;
+    Steinberg::IPlugView* PLUGIN_API createView (Steinberg::FIDString name) SMTG_OVERRIDE;
+
+    std::array<std::string, 10> getDisplayValues () const;
 
     OBJ_METHODS (Controller, Steinberg::Vst::EditControllerEx1)
     DEFINE_INTERFACES
@@ -37,6 +42,8 @@ private:
 
     std::vector<std::string> observedNames;
     uint64_t callbackCount = 0;
+    mutable std::mutex displayMutex;
+    std::array<std::string, 10> displayValues {};
 };
 
 } // namespace FieldRouteProbe
