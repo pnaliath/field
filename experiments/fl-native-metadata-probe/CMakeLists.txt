@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(FieldFLMetadataProbe VERSION 0.1.0 LANGUAGES CXX)
+project(FieldV002ReconstructProbe VERSION 0.0.2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -21,7 +21,7 @@ endif()
 
 set(FLSDK_DIR "${flsdk_mirror_SOURCE_DIR}/SDK")
 
-add_library(FieldFLMetadataProbe SHARED
+add_library(FieldV002ReconstructProbe SHARED
     ${FLSDK_DIR}/fp_plugclass.cpp
     ${FLSDK_DIR}/fp_cplug.cpp
     ${FLSDK_DIR}/fp_extra.cpp
@@ -29,12 +29,12 @@ add_library(FieldFLMetadataProbe SHARED
     source/fieldflprobe.cpp
 )
 
-target_include_directories(FieldFLMetadataProbe PRIVATE
+target_include_directories(FieldV002ReconstructProbe PRIVATE
     ${FLSDK_DIR}
     source
 )
 
-target_compile_definitions(FieldFLMetadataProbe PRIVATE
+target_compile_definitions(FieldV002ReconstructProbe PRIVATE
     WIN32_LEAN_AND_MEAN
     NOMINMAX
     UNICODE
@@ -42,12 +42,12 @@ target_compile_definitions(FieldFLMetadataProbe PRIVATE
     _CRT_SECURE_NO_WARNINGS
 )
 
-set_target_properties(FieldFLMetadataProbe PROPERTIES
+set_target_properties(FieldV002ReconstructProbe PROPERTIES
     PREFIX ""
-    OUTPUT_NAME "Field FL Metadata Probe_x64"
+    OUTPUT_NAME "Field V0.02 Reconstruct Probe_x64"
     SUFFIX ".dll"
 )
 
 if(MSVC)
-    target_compile_options(FieldFLMetadataProbe PRIVATE /W3 /EHsc)
+    target_compile_options(FieldV002ReconstructProbe PRIVATE /W3 /EHsc)
 endif()
