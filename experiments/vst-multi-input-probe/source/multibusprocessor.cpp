@@ -168,6 +168,98 @@ void addToMix64 (const AudioBusBuffers& in, AudioBusBuffers& mix, int32 samples)
     mix.silenceFlags = 0;
 }
 
+bool mainMatchesAuxSum32 (const ProcessData& data, int32 inputCount)
+{
+    if (inputCount <= 1 || data.numSamples <= 0)
+        return false;
+
+    const auto& main = data.inputs[0];
+    if (!main.channelBuffers32 || main.numChannels <= 0)
+        return false;
+
+    long double mainEnergy = 0.0;
+    long double auxEnergy = 0.0;
+    long double errorEnergy = 0.0;
+    uint64_t count = 0;
+
+    for (int32 c = 0; c < main.numChannels; ++c)
+    {
+        const auto* mainBuffer = main.channelBuffers32[c];
+        if (!mainBuffer)
+            continue;
+
+        for (int32 n = 0; n < data.numSamples; ++n)
+        {
+            double auxSum = 0.0;
+            for (int32 i = 1; i < inputCount; ++i)
+            {
+                const auto& aux = data.inputs[i];
+                if (aux.channelBuffers32 && c < aux.numChannels && aux.channelBuffers32[c])
+                    auxSum += aux.channelBuffers32[c][n];
+            }
+
+            const double m = mainBuffer[n];
+            const double e = m - auxSum;
+            mainEnergy += static_cast<long double> (m) * m;
+            auxEnergy += static_cast<long double> (auxSum) * auxSum;
+            errorEnergy += static_cast<long double> (e) * e;
+            ++count;
+        }
+    }
+
+    if (count == 0 || mainEnergy < 1.0e-10L || auxEnergy < 1.0e-10L)
+        return false;
+
+    // A normal FL audio send plus the same source mapped to plugin sidechain inputs
+    // makes Main ~= sum(Aux). Treat residual energy below -40 dB as duplicate routing.
+    return (errorEnergy / mainEnergy) < 1.0e-4L;
+}
+
+bool mainMatchesAuxSum64 (const ProcessData& data, int32 inputCount)
+{
+    if (inputCount <= 1 || data.numSamples <= 0)
+        return false;
+
+    const auto& main = data.inputs[0];
+    if (!main.channelBuffers64 || main.numChannels <= 0)
+        return false;
+
+    long double mainEnergy = 0.0;
+    long double auxEnergy = 0.0;
+    long double errorEnergy = 0.0;
+    uint64_t count = 0;
+
+    for (int32 c = 0; c < main.numChannels; ++c)
+    {
+        const auto* mainBuffer = main.channelBuffers64[c];
+        if (!mainBuffer)
+            continue;
+
+        for (int32 n = 0; n < data.numSamples; ++n)
+        {
+            long double auxSum = 0.0;
+            for (int32 i = 1; i < inputCount; ++i)
+            {
+                const auto& aux = data.inputs[i];
+                if (aux.channelBuffers64 && c < aux.numChannels && aux.channelBuffers64[c])
+                    auxSum += aux.channelBuffers64[c][n];
+            }
+
+            const long double m = mainBuffer[n];
+            const long double e = m - auxSum;
+            mainEnergy += m * m;
+            auxEnergy += auxSum * auxSum;
+            errorEnergy += e * e;
+            ++count;
+        }
+    }
+
+    if (count == 0 || mainEnergy < 1.0e-10L || auxEnergy < 1.0e-10L)
+        return false;
+
+    return (errorEnergy / mainEnergy) < 1.0e-4L;
+}
+
 } // namespace
 
 Processor::Processor ()
@@ -190,7 +282,6 @@ tresult PLUGIN_API Processor::initialize (FUnknown* context)
     addAudioInput (STR16 ("Field Input 7"),        SpeakerArr::kStereo, BusTypes::kAux);
     addAudioInput (STR16 ("Field Input 8"),        SpeakerArr::kStereo, BusTypes::kAux);
 
-    // Output 0 is a monitor mix of all active inputs. Outputs 1..8 mirror each input separately.
     addAudioOutput (STR16 ("Field Mix"),           SpeakerArr::kStereo, BusTypes::kMain);
     addAudioOutput (STR16 ("Stem Out 1"),          SpeakerArr::kStereo, BusTypes::kAux);
     addAudioOutput (STR16 ("Stem Out 2"),          SpeakerArr::kStereo, BusTypes::kAux);
@@ -227,7 +318,6 @@ tresult PLUGIN_API Processor::process (ProcessData& data)
 
     if (data.symbolicSampleSize == kSample64)
     {
-        // First copy each independent input to its corresponding stem output.
         for (int32 i = 0; i < inputCount; ++i)
         {
             float rms = -120.0f, peak = -120.0f;
@@ -245,21 +335,33 @@ tresult PLUGIN_API Processor::process (ProcessData& data)
             }
         }
 
-        // Clear unused stem outputs.
         for (int32 o = inputCount + 1; o < data.numOutputs; ++o)
             clear64 (data.outputs[o], data.numSamples);
 
-        // Main output is an unattenuated monitor sum of all Field inputs.
+        const bool parallel = mainMatchesAuxSum64 (data, inputCount);
+        state.parallelRouteDetected.store (parallel);
+
         if (data.numOutputs > 0)
         {
             auto& mix = data.outputs[0];
-            if (inputCount > 0 && data.inputs[0].channelBuffers64)
-                copy64 (data.inputs[0], mix, data.numSamples);
-            else
+            if (parallel)
+            {
+                // Main already contains the same signals as the aux buses. Sum only aux,
+                // otherwise FL's normal route + sidechain route becomes +6 dB.
                 clear64 (mix, data.numSamples);
+                for (int32 i = 1; i < inputCount; ++i)
+                    addToMix64 (data.inputs[i], mix, data.numSamples);
+            }
+            else
+            {
+                if (inputCount > 0 && data.inputs[0].channelBuffers64)
+                    copy64 (data.inputs[0], mix, data.numSamples);
+                else
+                    clear64 (mix, data.numSamples);
 
-            for (int32 i = 1; i < inputCount; ++i)
-                addToMix64 (data.inputs[i], mix, data.numSamples);
+                for (int32 i = 1; i < inputCount; ++i)
+                    addToMix64 (data.inputs[i], mix, data.numSamples);
+            }
         }
     }
     else
@@ -284,16 +386,28 @@ tresult PLUGIN_API Processor::process (ProcessData& data)
         for (int32 o = inputCount + 1; o < data.numOutputs; ++o)
             clear32 (data.outputs[o], data.numSamples);
 
+        const bool parallel = mainMatchesAuxSum32 (data, inputCount);
+        state.parallelRouteDetected.store (parallel);
+
         if (data.numOutputs > 0)
         {
             auto& mix = data.outputs[0];
-            if (inputCount > 0 && data.inputs[0].channelBuffers32)
-                copy32 (data.inputs[0], mix, data.numSamples);
-            else
+            if (parallel)
+            {
                 clear32 (mix, data.numSamples);
+                for (int32 i = 1; i < inputCount; ++i)
+                    addToMix32 (data.inputs[i], mix, data.numSamples);
+            }
+            else
+            {
+                if (inputCount > 0 && data.inputs[0].channelBuffers32)
+                    copy32 (data.inputs[0], mix, data.numSamples);
+                else
+                    clear32 (mix, data.numSamples);
 
-            for (int32 i = 1; i < inputCount; ++i)
-                addToMix32 (data.inputs[i], mix, data.numSamples);
+                for (int32 i = 1; i < inputCount; ++i)
+                    addToMix32 (data.inputs[i], mix, data.numSamples);
+            }
         }
     }
 
