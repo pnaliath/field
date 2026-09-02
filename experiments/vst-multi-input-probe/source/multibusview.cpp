@@ -198,7 +198,7 @@ void MultiBusView::paint (HWND hwnd)
     SetTextColor (dc, RGB (137, 154, 173));
     r = {18, 43, client.right - 18, 79};
     DrawTextW (dc,
-               L"One VST3 instance, eight stereo inputs. Route different FL mixer tracks to separate plugin input/sidechain buses. Independent rows lighting independently proves the single-instance Field architecture.",
+               L"One VST3 instance, eight stereo inputs. In FL Studio use SIDECHAIN routing for source tracks, then map those routes to the plugin inputs.",
                -1, &r, DT_LEFT | DT_WORDBREAK);
 
     const auto& state = sharedProbeState ();
@@ -288,10 +288,13 @@ void MultiBusView::paint (HWND hwnd)
     }
 
     SelectObject (dc, bodyFont);
-    SetTextColor (dc, RGB (137, 154, 173));
+    const bool parallelRoute = state.parallelRouteDetected.load ();
+    SetTextColor (dc, parallelRoute ? RGB (255, 122, 98) : RGB (137, 154, 173));
     r = {18, startY + kInputBusCount * rowH + 8, client.right - 18, client.bottom - 12};
     DrawTextW (dc,
-               L"Output: 'Field Mix' is an unattenuated sum of all active inputs. 'Stem Out 1..8' mirror the eight inputs independently for output-routing experiments. Diagnostic build only; the monitor sum can clip.",
+               parallelRoute
+                   ? L"PARALLEL ROUTING DETECTED. Main input already contains the same audio as the AUX inputs. Field Mix is de-duplicating it to prevent +6 dB. In FL use 'Sidechain to this track only' for Field source tracks."
+                   : L"Routing OK. For the final Field hub, use 'Sidechain to this track only' so each source reaches Field once and its direct Master send is disabled. Stem Out 1..8 remain available for routing experiments.",
                -1, &r, DT_LEFT | DT_WORDBREAK);
 
     SelectObject (dc, oldFont);
