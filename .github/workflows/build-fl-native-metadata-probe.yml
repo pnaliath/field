@@ -1,0 +1,49 @@
+name: Build Field FL Native Metadata Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/fl-native-input-metadata-probe
+    paths:
+      - experiments/fl-native-metadata-probe/**
+      - .github/workflows/build-fl-native-metadata-probe.yml
+
+jobs:
+  windows-fl-native:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: >-
+          cmake -S experiments/fl-native-metadata-probe -B build/fl-native-metadata-probe
+          -G "Visual Studio 18 2026" -A x64
+
+      - name: Build native DLL
+        run: cmake --build build/fl-native-metadata-probe --config Release --target FieldFLMetadataProbe
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem -Path build/fl-native-metadata-probe -Recurse -File -Filter "Field FL Metadata Probe_x64.dll" | Select-Object -First 1
+          if (-not $dll) {
+            Write-Host "Build tree:"
+            Get-ChildItem -Path build/fl-native-metadata-probe -Recurse | Select-Object -First 300 FullName
+            throw "Native FL plugin DLL not found"
+          }
+
+          $folder = "package/Field FL Metadata Probe"
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          Copy-Item $dll.FullName "$folder/Field FL Metadata Probe_x64.dll"
+          Set-Content -Path "$folder/Plugin.nfo" -Value "ps_vendorname=Field" -NoNewline
+          Compress-Archive -Path $folder -DestinationPath Field-FL-Native-Metadata-Probe-Windows-x64.zip -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Field-FL-Native-Metadata-Probe-Windows-x64
+          path: Field-FL-Native-Metadata-Probe-Windows-x64.zip
+          if-no-files-found: error
