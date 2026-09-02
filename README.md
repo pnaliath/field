@@ -115,6 +115,13 @@ python3 -m http.server 8000
 
 then visit `http://localhost:8000`.
 
+## Porting
+
+[ANALYSIS.md](ANALYSIS.md) specifies the analysis layer — every algorithm and
+constant, with the reasoning, plus what each stage becomes when it has to run on
+a real-time stream instead of a whole file. That document is the part that
+transfers to C++; the renderer is not.
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
