@@ -1,0 +1,50 @@
+name: Build Field V0.03 FL Native Reconstruct Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/fl-native-reconstruct-v0.02
+    paths:
+      - experiments/fl-native-metadata-probe/**
+      - .github/workflows/build-fl-native-metadata-probe.yml
+
+jobs:
+  windows-fl-native:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: >-
+          cmake -S experiments/fl-native-metadata-probe -B build/fl-native-metadata-probe
+          -G "Visual Studio 18 2026" -A x64
+
+      - name: Build native DLL
+        run: cmake --build build/fl-native-metadata-probe --config Release --target FieldV003ReconstructProbe
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem -Path build/fl-native-metadata-probe -Recurse -File -Filter "Field V003 Reconstruct Probe_x64.dll" | Select-Object -First 1
+          if (-not $dll) {
+            Write-Host "Build tree:"
+            Get-ChildItem -Path build/fl-native-metadata-probe -Recurse | Select-Object -First 300 FullName
+            throw "Field V0.03 native DLL not found"
+          }
+
+          # Dot-free filesystem identity; internal/UI plugin name is Field V0.03 Reconstruct Probe.
+          $folder = "package/Field V003 Reconstruct Probe"
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          Copy-Item $dll.FullName "$folder/Field V003 Reconstruct Probe_x64.dll"
+          Set-Content -Path "$folder/Plugin.nfo" -Value "ps_vendorname=Field" -NoNewline
+          Compress-Archive -Path $folder -DestinationPath Field-V0.03-Reconstruct-Probe-Windows-x64.zip -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Field-V0.03-Reconstruct-Probe-Windows-x64
+          path: Field-V0.03-Reconstruct-Probe-Windows-x64.zip
+          if-no-files-found: error
