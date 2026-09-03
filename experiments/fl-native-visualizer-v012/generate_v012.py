@@ -5,7 +5,7 @@ here = Path(__file__).resolve().parent
 root = here.parent
 v011_dir = root / "fl-native-visualizer-v011"
 
-runpy.run_path(str(v011_dir / "generate_v011.py"), run_name="__main__")
+runpy.run_path(str(v011_dir / "generate_v011_fixed.py"), run_name="__main__")
 src = v011_dir / "generated" / "fieldv011.cpp"
 out = here / "generated" / "fieldv012.cpp"
 out.parent.mkdir(parents=True, exist_ok=True)
