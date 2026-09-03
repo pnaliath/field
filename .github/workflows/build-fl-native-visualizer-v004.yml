@@ -47,3 +47,5 @@ jobs:
           name: Field-V0.04-Visualizer-Windows-x64
           path: Field-V0.04-Visualizer-Windows-x64.zip
           if-no-files-found: error
+
+# Build trigger: V0.04 first live object visualizer
