@@ -27,11 +27,11 @@ TFruityPlugInfo gPluginInfo = {
     CurrentSDKVersion,
     gLongName,
     gShortName,
-    0,  // effect plugin
-    0,  // params
-    0,  // polyphony
-    0,  // output controllers
-    0,  // output voices
+    0,
+    0,
+    0,
+    0,
+    0,
     {}
 };
 
@@ -63,7 +63,6 @@ std::string boundedString (const char* text, size_t capacity)
 {
     if (!text || capacity == 0)
         return {};
-
     size_t len = 0;
     while (len < capacity && text[len] != '\0')
         ++len;
@@ -74,12 +73,10 @@ std::wstring ansiToWide (const std::string& text)
 {
     if (text.empty ())
         return {};
-
     const int needed = MultiByteToWideChar (
         CP_ACP, 0, text.data (), static_cast<int> (text.size ()), nullptr, 0);
     if (needed <= 0)
         return std::wstring (text.begin (), text.end ());
-
     std::wstring out (static_cast<size_t> (needed), L'\0');
     MultiByteToWideChar (
         CP_ACP, 0, text.data (), static_cast<int> (text.size ()), out.data (), needed);
@@ -116,7 +113,6 @@ void analyseStereo (PWAV32FS buffer, int length, float& rmsDb, float& peakDb)
 
     double sumSq = 0.0;
     double peak = 0.0;
-
     for (int i = 0; i < length; ++i)
     {
         const double l = buffer[i][0];
@@ -124,7 +120,6 @@ void analyseStereo (PWAV32FS buffer, int length, float& rmsDb, float& peakDb)
         sumSq += l * l + r * r;
         peak = std::max (peak, std::max (std::abs (l), std::abs (r)));
     }
-
     const double rms = std::sqrt (sumSq / static_cast<double> (length * 2));
     rmsDb = linearToDb (rms);
     peakDb = linearToDb (peak);
@@ -137,7 +132,6 @@ public:
         : TCPPFruityPlug (tag, host, gDllInstance)
     {
         Info = &gPluginInfo;
-
         for (auto& p : routePeakDb)
             p.store (-120.0f, std::memory_order_relaxed);
         for (auto& p : routeBalance)
@@ -147,11 +141,7 @@ public:
         for (auto& route : routeSpectrum)
             for (auto& band : route)
                 band.store (0.0f, std::memory_order_relaxed);
-
         updateBandCoefficients (44100.0f);
-
-        // Keep construction load-safe. Route-buffer access starts only after
-        // the user presses START FIELD in the editor.
         PlugHost->Dispatcher (HostTag, FHD_WantIdle, 0, 2);
     }
 
@@ -189,20 +179,16 @@ public:
             default:
                 break;
         }
-
         return TCPPFruityPlug::Dispatcher (id, index, value);
     }
 
     void _stdcall Idle_Public () override
     {
-        // About 10 Hz metadata polling keeps rename/reorder/color changes live
-        // without querying 100+ route names every GUI idle tick.
         if (++idleCounter >= 6)
         {
             idleCounter = 0;
             refreshMetadata ();
         }
-
         if (editorWindow)
             InvalidateRect (editorWindow, nullptr, FALSE);
     }
@@ -219,7 +205,6 @@ public:
         referencePeakDb.store (refPeak, std::memory_order_relaxed);
 
         const auto currentMode = static_cast<EngineMode> (mode.load (std::memory_order_relaxed));
-
         if (currentMode == EngineMode::Bypass)
         {
             liveRouteCount.store (0, std::memory_order_relaxed);
@@ -227,7 +212,6 @@ public:
             reconstructPeakDb.store (-120.0f, std::memory_order_relaxed);
             nullRmsDb.store (-120.0f, std::memory_order_relaxed);
             nullPeakDb.store (-120.0f, std::memory_order_relaxed);
-
             if (source && source != dest)
                 std::memcpy (dest, source, static_cast<size_t> (length) * sizeof (TWAV32FS));
             else if (!source)
@@ -238,20 +222,16 @@ public:
         PWAV32FS recon = PlugHost->TempBuffers[0];
         if (!recon || recon == source || recon == dest)
             recon = PlugHost->TempBuffers[1];
-
         if (!recon || recon == source || recon == dest)
         {
-            // Never interrupt the DAW audio path if FL cannot provide a safe scratch buffer.
             if (source && source != dest)
                 std::memcpy (dest, source, static_cast<size_t> (length) * sizeof (TWAV32FS));
             return;
         }
 
         std::memset (recon, 0, static_cast<size_t> (length) * sizeof (TWAV32FS));
-
         const int count = std::clamp (
             reportedRouteCount.load (std::memory_order_relaxed), 0, kMaxRoutes);
-
         for (int route = 0; route < count; ++route)
             routePeakDb[static_cast<size_t> (route)].store (-120.0f, std::memory_order_relaxed);
 
@@ -262,13 +242,11 @@ public:
         {
             TIOBuffer input {};
             PlugHost->GetInBuffer (HostTag, static_cast<intptr_t> (route), &input);
-
             if (!input.Buffer || (input.Flags & IO_Filled) == 0)
                 continue;
 
             auto* routeBuffer = static_cast<PWAV32FS> (input.Buffer);
             const size_t routeArrayIndex = static_cast<size_t> (route - 1);
-
             double sumL2 = 0.0;
             double sumR2 = 0.0;
             double sumMid2 = 0.0;
@@ -281,12 +259,10 @@ public:
                 const float r = routeBuffer[i][1];
                 recon[i][0] += l;
                 recon[i][1] += r;
-
                 const double dl = l;
                 const double dr = r;
                 const double mid = 0.5 * (dl + dr);
                 const double side = 0.5 * (dl - dr);
-
                 sumL2 += dl * dl;
                 sumR2 += dr * dr;
                 sumMid2 += mid * mid;
@@ -298,7 +274,6 @@ public:
             const double right = std::sqrt (sumR2 / std::max (1, length));
             const double mid = std::sqrt (sumMid2 / std::max (1, length));
             const double side = std::sqrt (sumSide2 / std::max (1, length));
-
             const float balance = static_cast<float> (
                 std::clamp ((right - left) / (right + left + 1.0e-12), -1.0, 1.0));
             const float width = clamp01 (static_cast<float> ((side / (mid + side + 1.0e-12)) * 1.65));
@@ -306,15 +281,12 @@ public:
             routePeakDb[routeArrayIndex].store (linearToDb (routePeak), std::memory_order_relaxed);
             routeBalance[routeArrayIndex].store (balance, std::memory_order_relaxed);
             routeWidth[routeArrayIndex].store (width, std::memory_order_relaxed);
-
             if (doSpectrum)
                 analyseSpectrum (routeArrayIndex, routeBuffer, length);
-
             ++live;
         }
 
         liveRouteCount.store (live, std::memory_order_relaxed);
-
         float reconRms = -120.0f;
         float reconPeak = -120.0f;
         analyseStereo (recon, length, reconRms, reconPeak);
@@ -329,7 +301,6 @@ public:
             return;
         }
 
-        // NULL CHECK = Reference - Field reconstruction.
         double nullSumSq = 0.0;
         double nullPeak = 0.0;
         for (int i = 0; i < length; ++i)
@@ -344,7 +315,6 @@ public:
             nullPeak = std::max (nullPeak,
                 std::max (std::abs (static_cast<double> (l)), std::abs (static_cast<double> (r))));
         }
-
         const double nullRms = std::sqrt (nullSumSq / static_cast<double> (length * 2));
         nullRmsDb.store (linearToDb (nullRms), std::memory_order_relaxed);
         nullPeakDb.store (linearToDb (nullPeak), std::memory_order_relaxed);
@@ -355,14 +325,12 @@ private:
     {
         auto* self = reinterpret_cast<FieldV004Visualizer*> (
             GetWindowLongPtrW (hwnd, GWLP_USERDATA));
-
         if (message == WM_NCCREATE)
         {
             auto* create = reinterpret_cast<CREATESTRUCTW*> (lParam);
             self = static_cast<FieldV004Visualizer*> (create->lpCreateParams);
             SetWindowLongPtrW (hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR> (self));
         }
-
         if (!self)
             return DefWindowProcW (hwnd, message, wParam, lParam);
 
@@ -373,14 +341,11 @@ private:
                     static_cast<int> (static_cast<short> (LOWORD (lParam))),
                     static_cast<int> (static_cast<short> (HIWORD (lParam))));
                 return 0;
-
             case WM_PAINT:
                 self->paint (hwnd);
                 return 0;
-
             case WM_ERASEBKGND:
                 return 1;
-
             default:
                 return DefWindowProcW (hwnd, message, wParam, lParam);
         }
@@ -393,14 +358,15 @@ private:
         const float maxHz = std::min (16000.0f, sr * 0.42f);
         const float logMin = std::log (minHz);
         const float logMax = std::log (maxHz);
-
         for (int band = 0; band < kBands; ++band)
         {
-            const float t = (kBands == 1) ? 0.0f : static_cast<float> (band) / static_cast<float> (kBands - 1);
+            const float t = (kBands == 1) ? 0.0f :
+                static_cast<float> (band) / static_cast<float> (kBands - 1);
             const float hz = std::exp (logMin + t * (logMax - logMin));
             bandHz[static_cast<size_t> (band)].store (hz, std::memory_order_relaxed);
             const float omega = 2.0f * kPi * hz / sr;
-            bandCoeff[static_cast<size_t> (band)].store (2.0f * std::cos (omega), std::memory_order_relaxed);
+            bandCoeff[static_cast<size_t> (band)].store (
+                2.0f * std::cos (omega), std::memory_order_relaxed);
         }
     }
 
@@ -408,13 +374,11 @@ private:
     {
         if (!buffer || length <= 0 || routeIndex >= kMaxRoutes)
             return;
-
         for (int band = 0; band < kBands; ++band)
         {
             const float coeff = bandCoeff[static_cast<size_t> (band)].load (std::memory_order_relaxed);
             double s1 = 0.0;
             double s2 = 0.0;
-
             for (int i = 0; i < length; ++i)
             {
                 const double mono = 0.5 * static_cast<double> (buffer[i][0] + buffer[i][1]);
@@ -422,17 +386,14 @@ private:
                 s2 = s1;
                 s1 = s0;
             }
-
             const double power = std::max (0.0,
                 s1 * s1 + s2 * s2 - static_cast<double> (coeff) * s1 * s2);
             const double magnitude = (2.0 * std::sqrt (power)) / std::max (1, length);
             const float db = linearToDb (magnitude);
             const float normalized = clamp01 ((db + 72.0f) / 72.0f);
-
             auto& cell = routeSpectrum[routeIndex][static_cast<size_t> (band)];
             const float old = cell.load (std::memory_order_relaxed);
-            const float smoothed = old * 0.72f + normalized * 0.28f;
-            cell.store (smoothed, std::memory_order_relaxed);
+            cell.store (old * 0.72f + normalized * 0.28f, std::memory_order_relaxed);
         }
     }
 
@@ -441,10 +402,8 @@ private:
         const intptr_t countResult = PlugHost->Dispatcher (HostTag, FHD_GetNumInOut, 0, 0);
         const int count = std::clamp (static_cast<int> (countResult), 0, kMaxRoutes);
         reportedRouteCount.store (count, std::memory_order_relaxed);
-
         std::vector<InputMetadata> next;
         next.reserve (static_cast<size_t> (count));
-
         for (int route = 1; route <= count; ++route)
         {
             TNameColor nc {};
@@ -453,10 +412,8 @@ private:
                 FHD_GetInName,
                 static_cast<intptr_t> (route),
                 reinterpret_cast<intptr_t> (&nc));
-
             if (ok == 0)
                 continue;
-
             InputMetadata item;
             item.routeIndex = route;
             item.mixerIndex = nc.Index;
@@ -465,7 +422,6 @@ private:
             item.visibleName = boundedString (nc.VisName, sizeof (nc.VisName));
             next.push_back (std::move (item));
         }
-
         inputs = std::move (next);
     }
 
@@ -480,21 +436,15 @@ private:
     {
         if (y < 66 || y > 104)
             return;
-
         if (x >= 20 && x < 155)
         {
             mode.store (static_cast<int> (EngineMode::Bypass), std::memory_order_relaxed);
             clearActivity ();
         }
         else if (x >= 165 && x < 330)
-        {
             mode.store (static_cast<int> (EngineMode::Field), std::memory_order_relaxed);
-        }
         else if (x >= 340 && x < 485)
-        {
             mode.store (static_cast<int> (EngineMode::Null), std::memory_order_relaxed);
-        }
-
         if (editorWindow)
             InvalidateRect (editorWindow, nullptr, FALSE);
     }
@@ -503,7 +453,6 @@ private:
     {
         if (!parent)
             return;
-
         if (!editorWindow)
         {
             static bool registered = false;
@@ -519,7 +468,6 @@ private:
                 RegisterClassExW (&wc);
                 registered = true;
             }
-
             editorWindow = CreateWindowExW (
                 0,
                 L"FieldV004VisualizerWindow",
@@ -530,10 +478,8 @@ private:
                 nullptr,
                 gDllInstance,
                 this);
-
             EditorHandle = editorWindow;
         }
-
         refreshMetadata ();
         ShowWindow (editorWindow, SW_SHOW);
         InvalidateRect (editorWindow, nullptr, TRUE);
@@ -554,7 +500,6 @@ private:
         HBRUSH brush = CreateSolidBrush (active ? RGB (42, 126, 116) : RGB (31, 39, 49));
         FillRect (dc, &rect, brush);
         DeleteObject (brush);
-
         HPEN pen = CreatePen (PS_SOLID, 1, active ? RGB (91, 210, 195) : RGB (82, 96, 112));
         auto oldPen = SelectObject (dc, pen);
         auto oldBrush = SelectObject (dc, GetStockObject (NULL_BRUSH));
@@ -562,7 +507,6 @@ private:
         SelectObject (dc, oldBrush);
         SelectObject (dc, oldPen);
         DeleteObject (pen);
-
         SetTextColor (dc, active ? RGB (239, 248, 246) : RGB (190, 203, 217));
         RECT tr = rect;
         DrawTextW (dc, text, -1, &tr, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
@@ -581,35 +525,30 @@ private:
     {
         HPEN gridPen = CreatePen (PS_SOLID, 1, RGB (36, 44, 54));
         auto oldPen = SelectObject (dc, gridPen);
-
         const int center = (area.left + area.right) / 2;
         MoveToEx (dc, center, area.top, nullptr);
         LineTo (dc, center, area.bottom);
-
         const int quarter = (area.right - area.left) / 4;
         MoveToEx (dc, center - quarter, area.top, nullptr);
         LineTo (dc, center - quarter, area.bottom);
         MoveToEx (dc, center + quarter, area.top, nullptr);
         LineTo (dc, center + quarter, area.bottom);
-
-        const std::array<float, 9> labels {70.0f, 120.0f, 250.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f, 16000.0f};
+        const std::array<float, 9> labels {
+            70.0f, 120.0f, 250.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f, 16000.0f
+        };
         for (float hz : labels)
         {
             const int y = yForFrequency (hz, area.top, area.bottom);
             MoveToEx (dc, area.left, y, nullptr);
             LineTo (dc, area.right, y);
         }
-
         SelectObject (dc, oldPen);
         DeleteObject (gridPen);
-
         SetTextColor (dc, RGB (93, 108, 124));
         SetBkMode (dc, TRANSPARENT);
-
         RECT lr {area.left, area.top - 24, area.right, area.top};
         DrawTextW (dc, L"LEFT                                      CENTER                                      RIGHT", -1,
                    &lr, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
-
         for (float hz : labels)
         {
             wchar_t label[32] {};
@@ -617,7 +556,6 @@ private:
                 swprintf_s (label, L"%.0fk", hz / 1000.0f);
             else
                 swprintf_s (label, L"%.0f", hz);
-
             const int y = yForFrequency (hz, area.top, area.bottom);
             RECT fr {area.left - 48, y - 10, area.left - 6, y + 10};
             DrawTextW (dc, label, -1, &fr, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
@@ -628,18 +566,14 @@ private:
     {
         if (!track.meta)
             return;
-
         const int route = track.meta->routeIndex;
         if (route < 1 || route > kMaxRoutes)
             return;
-
         const size_t routeIndex = static_cast<size_t> (route - 1);
         const int centerBase = (area.left + area.right) / 2;
         const float halfSpan = static_cast<float> (area.right - area.left) * 0.40f;
         const int centerX = centerBase + static_cast<int> (track.balance * halfSpan);
-
         std::array<POINT, kBands * 2> points {};
-        float maxHalfWidth = 0.0f;
 
         for (int band = 0; band < kBands; ++band)
         {
@@ -647,25 +581,16 @@ private:
             const float hz = bandHz[static_cast<size_t> (band)].load (std::memory_order_relaxed);
             const int y = yForFrequency (hz, area.top, area.bottom);
             const float halfWidth = 5.0f + energy * (24.0f + track.width * 42.0f);
-            maxHalfWidth = std::max (maxHalfWidth, halfWidth);
-
-            points[static_cast<size_t> (band)] = {
-                centerX - static_cast<int> (halfWidth), y
-            };
-
-            points[static_cast<size_t> (kBands * 2 - 1 - band)] = {
-                centerX + static_cast<int> (halfWidth), y
-            };
+            points[static_cast<size_t> (band)] = {centerX - static_cast<int> (halfWidth), y};
+            points[static_cast<size_t> (kBands * 2 - 1 - band)] = {centerX + static_cast<int> (halfWidth), y};
         }
 
         COLORREF raw = static_cast<COLORREF> (track.meta->color & 0x00FFFFFF);
         if (raw == RGB (0, 0, 0))
             raw = RGB (115, 160, 190);
-
         const COLORREF bg = RGB (16, 20, 26);
         const COLORREF fill = mixColor (raw, bg, 0.68f);
         const COLORREF outline = mixColor (raw, RGB (245, 250, 255), 0.20f);
-
         HBRUSH bodyBrush = CreateSolidBrush (fill);
         HPEN bodyPen = CreatePen (PS_SOLID, 2, outline);
         auto oldBrush = SelectObject (dc, bodyBrush);
@@ -676,25 +601,20 @@ private:
         DeleteObject (bodyPen);
         DeleteObject (bodyBrush);
 
-        // A center spine makes pan movement easy to perceive even when spectra overlap.
         HPEN spinePen = CreatePen (PS_SOLID, 1, mixColor (outline, bg, 0.25f));
         oldPen = SelectObject (dc, spinePen);
         MoveToEx (dc, centerX, area.top, nullptr);
         LineTo (dc, centerX, area.bottom);
         SelectObject (dc, oldPen);
         DeleteObject (spinePen);
-
-        (void) maxHalfWidth;
     }
 
     void paint (HWND hwnd)
     {
         PAINTSTRUCT ps {};
         HDC dc = BeginPaint (hwnd, &ps);
-
         RECT client {};
         GetClientRect (hwnd, &client);
-
         const COLORREF bgColor = RGB (16, 20, 26);
         HBRUSH bg = CreateSolidBrush (bgColor);
         FillRect (dc, &client, bg);
@@ -754,8 +674,8 @@ private:
         const int sidebarRight = 220;
         const int fieldLeft = 285;
         const int fieldTop = 146;
-        const int fieldBottom = client.bottom - 28;
-        const int fieldRight = client.right - 22;
+        const int fieldBottom = static_cast<int> (client.bottom) - 28;
+        const int fieldRight = static_cast<int> (client.right) - 22;
         RECT fieldArea {fieldLeft, fieldTop, fieldRight, fieldBottom};
 
         SelectObject (dc, smallFont);
@@ -767,12 +687,10 @@ private:
         {
             if (item.routeIndex < 1 || item.routeIndex > kMaxRoutes)
                 continue;
-
             const size_t idx = static_cast<size_t> (item.routeIndex - 1);
             const float peak = routePeakDb[idx].load (std::memory_order_relaxed);
             if (peak <= -72.0f)
                 continue;
-
             DrawTrack d;
             d.meta = &item;
             d.peakDb = peak;
@@ -781,12 +699,10 @@ private:
             active.push_back (d);
         }
 
-        // Draw quieter tracks first so the louder/more important bodies remain legible.
         std::sort (active.begin (), active.end (), [] (const DrawTrack& a, const DrawTrack& b)
         {
             return a.peakDb < b.peakDb;
         });
-
         for (const auto& track : active)
             drawSpectralBody (dc, track, fieldArea);
 
@@ -795,7 +711,7 @@ private:
         r = {sidebarLeft, 118, sidebarRight, 144};
         DrawTextW (dc, L"ACTIVE TRACKS", -1, &r, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
-        const int maxRows = std::max (0, (client.bottom - 160) / 28);
+        const int maxRows = std::max (0, (static_cast<int> (client.bottom) - 160) / 28);
         std::vector<DrawTrack> loudest = active;
         std::sort (loudest.begin (), loudest.end (), [] (const DrawTrack& a, const DrawTrack& b)
         {
@@ -808,26 +724,21 @@ private:
             const auto& track = loudest[static_cast<size_t> (i)];
             const auto& item = *track.meta;
             const int y = 150 + i * 28;
-
             COLORREF raw = static_cast<COLORREF> (item.color & 0x00FFFFFF);
             if (raw == RGB (0, 0, 0))
                 raw = RGB (115, 160, 190);
-
             RECT swatch {sidebarLeft, y + 5, sidebarLeft + 14, y + 19};
             HBRUSH colorBrush = CreateSolidBrush (raw);
             FillRect (dc, &swatch, colorBrush);
             DeleteObject (colorBrush);
-
             std::string display = !item.visibleName.empty () ? item.visibleName : item.userName;
             if (display.empty ())
                 display = "(unnamed)";
             const auto wide = ansiToWide (display);
-
             RECT nameRect {sidebarLeft + 22, y, sidebarRight - 48, y + 26};
             SetTextColor (dc, RGB (207, 218, 229));
             DrawTextW (dc, wide.c_str (), -1, &nameRect,
                        DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
-
             wchar_t peakText[32] {};
             swprintf_s (peakText, L"%.0f", track.peakDb);
             RECT peakRect {sidebarRight - 45, y, sidebarRight, y + 26};
@@ -842,7 +753,6 @@ private:
             RECT message {fieldArea.left + 40, fieldArea.top + 80, fieldArea.right - 40, fieldArea.top + 160};
             DrawTextW (dc, L"PRESS START FIELD TO READ INDIVIDUAL ROUTED TRACK BUFFERS", -1, &message,
                        DT_CENTER | DT_WORDBREAK | DT_VCENTER);
-
             SelectObject (dc, bodyFont);
             SetTextColor (dc, RGB (116, 133, 151));
             RECT sub {fieldArea.left + 80, fieldArea.top + 155, fieldArea.right - 80, fieldArea.top + 215};
@@ -870,21 +780,17 @@ private:
     HWND editorWindow = nullptr;
     int idleCounter = 0;
     unsigned int analysisBlockCounter = 0;
-
     std::vector<InputMetadata> inputs;
-
     std::atomic<int> mode {static_cast<int> (EngineMode::Bypass)};
     std::atomic<int> reportedRouteCount {0};
     std::atomic<int> liveRouteCount {0};
     std::atomic<float> sampleRate {44100.0f};
-
     std::atomic<float> referenceRmsDb {-120.0f};
     std::atomic<float> referencePeakDb {-120.0f};
     std::atomic<float> reconstructRmsDb {-120.0f};
     std::atomic<float> reconstructPeakDb {-120.0f};
     std::atomic<float> nullRmsDb {-120.0f};
     std::atomic<float> nullPeakDb {-120.0f};
-
     std::array<std::atomic<float>, kMaxRoutes> routePeakDb;
     std::array<std::atomic<float>, kMaxRoutes> routeBalance;
     std::array<std::atomic<float>, kMaxRoutes> routeWidth;
