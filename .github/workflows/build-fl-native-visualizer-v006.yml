@@ -1,0 +1,51 @@
+name: Build Field V0.06 FL Native FX Aware Visualizer
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/fl-native-visualizer-v0.06
+    paths:
+      - experiments/fl-native-visualizer-v006/**
+      - experiments/fl-native-visualizer-v005/**
+      - experiments/fl-native-visualizer-v004/**
+      - .github/workflows/build-fl-native-visualizer-v006.yml
+
+jobs:
+  windows-fl-native:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: >-
+          cmake -S experiments/fl-native-visualizer-v006 -B build/fl-native-visualizer-v006
+          -G "Visual Studio 18 2026" -A x64
+
+      - name: Build native DLL
+        run: cmake --build build/fl-native-visualizer-v006 --config Release --target FieldV006FxAwareVisualizer
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem -Path build/fl-native-visualizer-v006 -Recurse -File -Filter "Field V006 FX Aware Visualizer_x64.dll" | Select-Object -First 1
+          if (-not $dll) {
+            Write-Host "Build tree:"
+            Get-ChildItem -Path build/fl-native-visualizer-v006 -Recurse | Select-Object -First 300 FullName
+            throw "Field V0.06 native DLL not found"
+          }
+
+          $folder = "package/Field V006 FX Aware Visualizer"
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          Copy-Item $dll.FullName "$folder/Field V006 FX Aware Visualizer_x64.dll"
+          Set-Content -Path "$folder/Plugin.nfo" -Value "ps_vendorname=Field" -NoNewline
+          Compress-Archive -Path $folder -DestinationPath Field-V0.06-FX-Aware-Visualizer-Windows-x64.zip -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Field-V0.06-FX-Aware-Visualizer-Windows-x64
+          path: Field-V0.06-FX-Aware-Visualizer-Windows-x64.zip
+          if-no-files-found: error
