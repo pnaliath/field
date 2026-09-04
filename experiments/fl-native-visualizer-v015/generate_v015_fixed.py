@@ -31,6 +31,14 @@ if old not in code:
     raise RuntimeError("V0.15 fixed wrapper could not find body readiness patch")
 code = code.replace(old, new, 1)
 
+# analyseSpectrum is immediately followed by temporal-FX helper methods in the inherited
+# generated source. Replace only that function, not the helpers through refreshMetadata.
+bad_boundary = '    "    void refreshMetadata ()",\n    profile_analysis,'
+good_boundary = '    "    float historySample (",\n    profile_analysis,'
+if bad_boundary not in code:
+    raise RuntimeError("V0.15 fixed wrapper could not find profile replacement boundary")
+code = code.replace(bad_boundary, good_boundary, 1)
+
 # Correct one parenthesis in the generated learned-loudness expression.
 bad = "bandHz[static_cast<size_t> (band)].load (std::memory_order_relaxed))));"
 good = "bandHz[static_cast<size_t> (band)].load (std::memory_order_relaxed)));"
