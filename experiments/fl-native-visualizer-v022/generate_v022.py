@@ -5,8 +5,8 @@ here = Path(__file__).resolve().parent
 root = here.parent
 v021 = root / "fl-native-visualizer-v021"
 
-# Start from compile-green V0.21 spatial-voice build.
-runpy.run_path(str(v021 / "generate_v021.py"), run_name="__main__")
+# Start from compile-green V0.21 spatial-voice build, including its diagnostics fix.
+runpy.run_path(str(v021 / "generate_v021_fixed.py"), run_name="__main__")
 src = v021 / "generated" / "fieldv021.cpp"
 out = here / "generated" / "fieldv022.cpp"
 out.parent.mkdir(parents=True, exist_ok=True)
