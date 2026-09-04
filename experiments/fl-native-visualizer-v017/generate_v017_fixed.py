@@ -18,12 +18,17 @@ code = code.replace(old_fx_end, new_fx_end, 1)
 
 # drawIdentityTrace is between drawSpectralBody and drawTrackNameOnBody in V0.16,
 # so the V0.17 body replacement already removes that old full-height function.
-# Remove the redundant generator patch that tried to remove it a second time.
 identity_start = code.find("# Current V0.12 identity trace closes a full-range polygon.")
 identity_end = code.find("# Label the dominant occupied band", identity_start)
 if identity_start < 0 or identity_end < 0:
     raise RuntimeError("V0.17 fixed wrapper could not isolate redundant identity patch")
 code = code[:identity_start] + code[identity_end:]
+
+# MSVC rejects the function-local constexpr identifiers as std::array non-type
+# template arguments inside these lambdas. Ring segment counts are fixed by design,
+# so emit their literal array sizes (22 segments => 23 points, 20 => 21 points).
+code = code.replace("std::array<POINT, kRingSegments + 1>", "std::array<POINT, 23>")
+code = code.replace("std::array<POINT, kSegments + 1>", "std::array<POINT, 21>")
 
 # The inherited paint pass still contains an identity-trace call. Since the ring stack
 # and per-lobe silhouette replace that overlay, remove the call from final generated C++.
