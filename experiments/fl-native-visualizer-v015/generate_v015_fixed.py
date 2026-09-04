@@ -33,3 +33,11 @@ code = code.replace(old, new, 1)
 
 namespace = {"__file__": str(script), "__name__": "__main__"}
 exec(compile(code, str(script), "exec"), namespace)
+
+# Temporary compile-context output so CI errors can be corrected from exact generated C++.
+out = Path(__file__).resolve().parent / "generated" / "fieldv015.cpp"
+lines = out.read_text(encoding="utf-8").splitlines()
+print("--- V0.15 generated lines 640-690 ---")
+for i in range(639, min(690, len(lines))):
+    print(f"{i+1:04d}: {lines[i]}")
+print("--- end generated excerpt ---")
