@@ -1,0 +1,58 @@
+name: Build Field V0.14 FL Native Stable Pose Quiet Tracks
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/fl-native-visualizer-v0.14
+    paths:
+      - experiments/fl-native-visualizer-v014/**
+      - experiments/fl-native-visualizer-v013/**
+      - experiments/fl-native-visualizer-v012/**
+      - experiments/fl-native-visualizer-v011/**
+      - experiments/fl-native-visualizer-v010/**
+      - experiments/fl-native-visualizer-v009/**
+      - experiments/fl-native-visualizer-v008/**
+      - experiments/fl-native-visualizer-v007/**
+      - experiments/fl-native-visualizer-v006/**
+      - experiments/fl-native-visualizer-v005/**
+      - experiments/fl-native-visualizer-v004/**
+      - .github/workflows/build-fl-native-visualizer-v014.yml
+
+jobs:
+  windows-fl-native:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: >-
+          cmake -S experiments/fl-native-visualizer-v014 -B build/fl-native-visualizer-v014
+          -G "Visual Studio 18 2026" -A x64
+
+      - name: Build native DLL
+        run: cmake --build build/fl-native-visualizer-v014 --config Release --target FieldV014StablePoseQuietTracks
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem -Path build/fl-native-visualizer-v014 -Recurse -File -Filter "Field V014 Stable Pose Quiet Tracks_x64.dll" | Select-Object -First 1
+          if (-not $dll) {
+            Get-ChildItem -Path build/fl-native-visualizer-v014 -Recurse | Select-Object -First 300 FullName
+            throw "Field V0.14 native DLL not found"
+          }
+
+          $folder = "package/Field V014 Stable Pose Quiet Tracks"
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          Copy-Item $dll.FullName "$folder/Field V014 Stable Pose Quiet Tracks_x64.dll"
+          Set-Content -Path "$folder/Plugin.nfo" -Value "ps_vendorname=Field" -NoNewline
+          Compress-Archive -Path $folder -DestinationPath Field-V0.14-Stable-Pose-Quiet-Tracks-Windows-x64.zip -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Field-V0.14-Stable-Pose-Quiet-Tracks-Windows-x64
+          path: Field-V0.14-Stable-Pose-Quiet-Tracks-Windows-x64.zip
+          if-no-files-found: error
