@@ -1,0 +1,20 @@
+name: Inspect Field V0.16 generated source
+
+on:
+  push:
+    branches:
+      - experiment/fl-native-visualizer-v0.16
+    paths:
+      - 'experiments/fl-native-visualizer-v016/inspect_v015.py'
+      - '.github/workflows/inspect-v016-generated.yml'
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Generate and inspect
+        run: python experiments/fl-native-visualizer-v016/inspect_v015.py
