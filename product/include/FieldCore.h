@@ -13,6 +13,8 @@
 #include <vector>
 
 namespace field {
+static_assert(std::atomic<float>::is_always_lock_free && std::atomic<double>::is_always_lock_free &&
+              std::atomic<uint64_t>::is_always_lock_free, "Field requires lock-free audio telemetry atomics");
 constexpr int Routes = 128, Bands = 76, FFTSize = 4096;
 constexpr const char* Version = "1.0.0-beta.1";
 inline double nowMs() noexcept {

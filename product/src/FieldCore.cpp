@@ -34,7 +34,12 @@ void Engine::run() noexcept {
 void Engine::tickForTest(){tick();}
 void Engine::setRoute(int route,uint64_t id,const std::string& name,Kind kind){
     if(route<0||route>=Routes||!id)return;std::lock_guard<std::mutex> lock(mutex);auto& v=view.routes[route];
-    if(v.id!=id){v=RouteView{};v.id=id;reset[route]=true;
+    if(v.id!=id){
+        // Preserve per-source state even if a host reorders its route slots.
+        int previous=-1;for(int i=0;i<Routes;++i)if(i!=route&&view.routes[i].id==id){previous=i;break;}
+        if(previous>=0){std::swap(v,view.routes[previous]);std::swap(learned[route],learned[previous]);
+            std::swap(reset[route],reset[previous]);}
+        else{v=RouteView{};v.id=id;reset[route]=true;}
         auto& ring=audio[route]->ring;ring.read.store(ring.write.load(std::memory_order_acquire),std::memory_order_release);}
     size_t n=std::min(name.size(),sizeof(v.name)-1);std::memcpy(v.name,name.data(),n);v.name[n]=0;
     if(kind!=Kind::Unknown)v.kind=kind;
