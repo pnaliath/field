@@ -1,0 +1,18 @@
+name: Inspect V0.17 inherited FX section
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/fl-native-visualizer-v0.17
+    paths:
+      - experiments/fl-native-visualizer-v017/inspect_v016_fx.py
+      - .github/workflows/inspect-v017-inherited-fx.yml
+
+jobs:
+  inspect:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dump inherited FX section
+        run: python experiments/fl-native-visualizer-v017/inspect_v016_fx.py
