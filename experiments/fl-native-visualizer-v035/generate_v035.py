@@ -63,9 +63,11 @@ replace_once(
 # then present it with one BitBlt like a browser canvas/compositor frame.
 replace_once(
     "        HDC dc = BeginPaint (hwnd, &ps);\n"
+    "        updateDiagnosticPaintClock ();\n"
     "        RECT client {};\n"
     "        GetClientRect (hwnd, &client);",
     "        HDC windowDc = BeginPaint (hwnd, &ps);\n"
+    "        updateDiagnosticPaintClock ();\n"
     "        RECT client {};\n"
     "        GetClientRect (hwnd, &client);\n"
     "        const int frameW = std::max (1, client.right - client.left);\n"
