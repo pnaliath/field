@@ -5,8 +5,8 @@ here = Path(__file__).resolve().parent
 root = here.parent
 v023 = root / "fl-native-visualizer-v023"
 
-# Start from compile-green V0.23 including diagnostic columns.
-runpy.run_path(str(v023 / "generate_v023_fixed.py"), run_name="__main__")
+# Start from compile-green V0.23 including diagnostics and its MSVC ring-array fix.
+runpy.run_path(str(v023 / "generate_v023_stable.py"), run_name="__main__")
 src = v023 / "generated" / "fieldv023.cpp"
 out = here / "generated" / "fieldv024.cpp"
 out.parent.mkdir(parents=True, exist_ok=True)
