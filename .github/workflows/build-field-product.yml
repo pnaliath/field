@@ -1,0 +1,49 @@
+name: Field 1.0 product candidate
+on:
+  workflow_dispatch:
+  push:
+    branches: [release/v1.0-product]
+    paths: [product/**, .github/workflows/build-field-product.yml]
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S product -B build/product -G "Visual Studio 17 2022" -A x64
+      - name: Build and VST3 validation
+        run: cmake --build build/product --config Release --parallel 4
+      - name: Core acceptance tests
+        run: ctest --test-dir build/product -C Release --output-on-failure
+      - name: Render actual Windows UI
+        run: ./build/product/Release/FieldRenderCheck.exe
+      - name: Package binaries
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path 'package/Field 1 Beta' -Force | Out-Null
+          Copy-Item 'build/product/Release/Field 1 Beta_x64.dll' 'package/Field 1 Beta/'
+          Set-Content -Path 'package/Field 1 Beta/Plugin.nfo' -Value 'ps_vendorname=Field'
+          $bundle = Get-ChildItem build/product -Recurse -Directory -Filter FieldVST3.vst3 | Select-Object -First 1
+          if (-not $bundle) { throw 'VST3 bundle missing' }
+          Copy-Item $bundle.FullName package -Recurse
+          Copy-Item product/docs package -Recurse
+          Copy-Item LICENSE package
+          $sdkLicenses = Get-ChildItem build/product/_deps/vst3sdk-src -File -Filter LICENSE*
+          foreach ($license in $sdkLicenses) { Copy-Item $license.FullName ('package/VST3-SDK-' + $license.Name) }
+          Copy-Item Field-render-check.png package
+          Get-ChildItem package -Recurse -File | Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize | Out-File package/SHA256SUMS.txt
+          Compress-Archive -Path package/* -DestinationPath Field-1.0.0-beta.1-Windows-x64.zip
+      - name: Build installer
+        shell: pwsh
+        run: '& "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" product/installer/Field.iss'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Field-1.0.0-beta.1-Windows-x64
+          path: |
+            Field-1.0.0-beta.1-Windows-x64.zip
+            package/*Setup.exe
+            Field-render-check.png
+          if-no-files-found: error
