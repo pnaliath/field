@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - experiment/fl-native-visualizer-v0.30-web-smooth-geometry
+      - experiment/fl-native-visualizer-v0.29-stable-eq-delta
     paths:
       - experiments/fl-native-visualizer-v030/**
       - experiments/fl-native-visualizer-v029/**
