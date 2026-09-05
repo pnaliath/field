@@ -1,0 +1,62 @@
+name: Build Field V0.23 FL Native Web Geometry
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/fl-native-visualizer-v0.23-web-geometry
+    paths:
+      - experiments/fl-native-visualizer-v023/**
+      - experiments/fl-native-visualizer-v022/**
+      - experiments/fl-native-visualizer-v021/**
+      - experiments/fl-native-visualizer-v020/**
+      - experiments/fl-native-visualizer-v019/**
+      - experiments/fl-native-visualizer-v018/**
+      - experiments/fl-native-visualizer-v017/**
+      - experiments/fl-native-visualizer-v016/**
+      - experiments/fl-native-visualizer-v015/**
+      - experiments/fl-native-visualizer-v014/**
+      - experiments/fl-native-visualizer-v013/**
+      - experiments/fl-native-visualizer-v012/**
+      - experiments/fl-native-visualizer-v011/**
+      - experiments/fl-native-visualizer-v010/**
+      - experiments/fl-native-visualizer-v009/**
+      - experiments/fl-native-visualizer-v008/**
+      - experiments/fl-native-visualizer-v007/**
+      - experiments/fl-native-visualizer-v006/**
+      - experiments/fl-native-visualizer-v005/**
+      - experiments/fl-native-visualizer-v004/**
+      - .github/workflows/build-fl-native-visualizer-v023.yml
+
+jobs:
+  windows-fl-native:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: >-
+          cmake -S experiments/fl-native-visualizer-v023 -B build/fl-native-visualizer-v023
+          -G "Visual Studio 18 2026" -A x64
+
+      - name: Build native DLL
+        run: cmake --build build/fl-native-visualizer-v023 --config Release --target FieldV023WebGeometry
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem -Path build/fl-native-visualizer-v023 -Recurse -File -Filter "Field V023 Web Geometry_x64.dll" | Select-Object -First 1
+          if (-not $dll) { throw "Field V0.23 native DLL not found" }
+          $folder = "package/Field V023 Web Geometry"
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          Copy-Item $dll.FullName "$folder/Field V023 Web Geometry_x64.dll"
+          Set-Content -Path "$folder/Plugin.nfo" -Value "ps_vendorname=Field" -NoNewline
+          Compress-Archive -Path $folder -DestinationPath Field-V0.23-Web-Geometry-Windows-x64.zip -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Field-V0.23-Web-Geometry-Windows-x64
+          path: Field-V0.23-Web-Geometry-Windows-x64.zip
+          if-no-files-found: error

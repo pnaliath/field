@@ -1,0 +1,1 @@
+V0.18 diagnostics checkpoint preserved before V0.19 branch.
