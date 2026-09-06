@@ -211,7 +211,7 @@ bool Engine::restore(const void* data,size_t size){
     if(!data||size<48||size>128000)return false;
     Reader r{static_cast<const uint8_t*>(data),size};if(r.u()!=0x31444c46||r.u()!=1)return false;
     Reader tail{r.p+size-4,4};if(tail.u()!=checksum(r.p,size-4))return false;
-    Preferences p;p.yaw=r.f();p.pitch=r.f();p.zoom=r.f();p.animation=r.f();p.selected=int(r.u())-1;
+    Preferences p;p.yaw=r.f();p.pitch=r.f();p.zoom=r.f();p.animation=r.f();auto selected=r.u();if(selected>Routes)return false;p.selected=int(selected)-1;
     p.detail=int(r.u());p.analysis=int(r.u());auto flags=r.u();p.labels=flags&1;p.grid=flags&2;p.fx=flags&4;
     if(p.selected<-1||p.selected>=Routes||p.detail<0||p.detail>2||p.analysis<0||p.analysis>2||p.zoom<.4||p.zoom>3||std::abs(p.pitch)>1.5||p.animation<0||p.animation>1)return false;
     auto restored=std::make_unique<Snapshot>();

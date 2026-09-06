@@ -42,6 +42,9 @@ target_include_directories(FieldVST3 PRIVATE "${vst3sdk_SOURCE_DIR}")
 target_link_libraries(FieldVST3 PRIVATE sdk FieldView comctl32)
 smtg_target_configure_version_file(FieldVST3)
 if(MSVC)
+  # The pinned FL SDK exposes legacy char* string literals. Keep this compatibility
+  # switch local to its implementation; Field source remains in strict C++ mode.
+  set_source_files_properties("${FLSDK}/fp_cplug.cpp" PROPERTIES COMPILE_OPTIONS "/Zc:strictStrings-")
   foreach(target FieldCore FieldView FieldNative FieldVST3 FieldCoreTests)
     target_compile_options(${target} PRIVATE /W4 /EHsc /permissive-)
   endforeach()

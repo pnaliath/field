@@ -134,9 +134,10 @@ public:
         double t=nowMs(),duration=1000.*n/sr;
         r.peak.store(db(peak),std::memory_order_relaxed);r.rms.store(db(rms),std::memory_order_relaxed);
         r.pan.store(pan,std::memory_order_relaxed);r.width.store(width,std::memory_order_relaxed);
-        r.lastBlock.store(t,std::memory_order_relaxed);
+        double previousBlock=r.lastBlock.exchange(t,std::memory_order_relaxed);
         if(peak>1.e-6){r.lastSignal.store(t,std::memory_order_relaxed);
-            bool onset=(rms>std::max(1.e-5f,r.previousRms*1.65f))&&(t-r.lastOnset>=60);
+            bool resumed=previousBlock==0||t-previousBlock>std::max(80.,duration*2.);
+            bool onset=(resumed||rms>std::max(1.e-5f,r.previousRms*1.65f))&&(t-r.lastOnset>=60);
             if(onset){r.lastOnset=t;r.onsetPan.store(pan);r.onsetLevel.store(db(rms));r.onsetTime.store(t);
                 r.onsetCount.fetch_add(1,std::memory_order_release);}
         }

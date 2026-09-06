@@ -13,17 +13,21 @@ namespace {
 const FUID FieldUID(0x8E8253CD,0xA76E435F,0x9F347C31,0x85C98B12);
 const FUID SenderUID(0x987FDB41,0xF0B24252,0x8C35D886,0xC8D14870);
 HINSTANCE module(){HMODULE h=nullptr;GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,reinterpret_cast<LPCWSTR>(&module),&h);return h;}
+std::atomic<uint64_t> sourceSequence{1};
+uint64_t newSourceId(){return (uint64_t(field::nowMs())<<20)^sourceSequence.fetch_add(1);}
 struct Session {
     field::Engine engine;
     std::array<bool,field::Routes> used{};
+    std::array<uint64_t,field::Routes> ownerId{};
     std::mutex mutex;
     std::atomic<int> senders{0},masters{0};
     int claim(){std::lock_guard<std::mutex> lock(mutex);for(int i=1;i<field::Routes;++i)if(!used[i]){used[i]=true;senders.fetch_add(1);return i;}return -1;}
-    void release(int route){if(route<1)return;std::lock_guard<std::mutex> lock(mutex);if(used[route]){used[route]=false;senders.fetch_sub(1);engine.removeRoute(route);}}
+    void identify(int route,uint64_t& id){std::lock_guard<std::mutex> lock(mutex);
+        for(int i=1;i<field::Routes;++i)if(i!=route&&used[i]&&ownerId[i]==id){id=newSourceId();break;}ownerId[route]=id;}
+    void release(int route){if(route<1)return;std::lock_guard<std::mutex> lock(mutex);if(used[route]){used[route]=false;ownerId[route]=0;senders.fetch_sub(1);engine.removeRoute(route);}}
 };
 std::mutex registryMutex;
 std::array<std::weak_ptr<Session>,16> registry;
-std::atomic<uint64_t> sourceSequence{1};
 std::shared_ptr<Session> session(int n){std::lock_guard<std::mutex> lock(registryMutex);auto s=registry[n].lock();if(!s){s=std::make_shared<Session>();registry[n]=s;}return s;}
 int freeSession(){std::lock_guard<std::mutex> lock(registryMutex);for(int i=0;i<16;++i){auto s=registry[i].lock();if(!s||!s->masters.load())return i;}return -1;}
 class Plugin;
@@ -46,14 +50,14 @@ public:
     std::atomic<int> active{-1};
     std::atomic<bool> bypass{false};
     std::string sourceName="Source";
-    uint64_t sourceId=(uint64_t(field::nowMs())<<20)^sourceSequence.fetch_add(1);
+    uint64_t sourceId=newSourceId();
     explicit Plugin(bool isSender):sender(isSender){route.fill(-1);}
     ~Plugin() override{for(int i=0;i<16;++i)if(held[i]){if(sender)held[i]->release(route[i]);else held[i]->masters.fetch_sub(1);}}
     void connect(int n){
         if(n<0||n>=16){active.store(-1,std::memory_order_release);return;}
         if(!held[n]){held[n]=session(n);if(sender){route[n]=held[n]->claim();if(route[n]<0){held[n].reset();return;}}
             else{held[n]->masters.fetch_add(1);held[n]->engine.setRoute(0,1,"Master",field::Kind::Bus);}}
-        if(sender)held[n]->engine.setRoute(route[n],sourceId,sourceName,field::Kind::Source);
+        if(sender){held[n]->identify(route[n],sourceId);held[n]->engine.setRoute(route[n],sourceId,sourceName,field::Kind::Source);}
         if(processSetup.sampleRate>=8000)held[n]->engine.setRate(processSetup.sampleRate);
         active.store(n,std::memory_order_release);
     }
