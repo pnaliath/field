@@ -23,6 +23,7 @@ struct Session {
 };
 std::mutex registryMutex;
 std::array<std::weak_ptr<Session>,16> registry;
+std::atomic<uint64_t> sourceSequence{1};
 std::shared_ptr<Session> session(int n){std::lock_guard<std::mutex> lock(registryMutex);auto s=registry[n].lock();if(!s){s=std::make_shared<Session>();registry[n]=s;}return s;}
 int freeSession(){std::lock_guard<std::mutex> lock(registryMutex);for(int i=0;i<16;++i){auto s=registry[i].lock();if(!s||!s->masters.load())return i;}return -1;}
 class Plugin;
@@ -43,14 +44,16 @@ public:
     std::array<std::shared_ptr<Session>,16> held;
     std::array<int,16> route{};
     std::atomic<int> active{-1};
+    std::atomic<bool> bypass{false};
     std::string sourceName="Source";
+    uint64_t sourceId=(uint64_t(field::nowMs())<<20)^sourceSequence.fetch_add(1);
     explicit Plugin(bool isSender):sender(isSender){route.fill(-1);}
     ~Plugin() override{for(int i=0;i<16;++i)if(held[i]){if(sender)held[i]->release(route[i]);else held[i]->masters.fetch_sub(1);}}
     void connect(int n){
         if(n<0||n>=16){active.store(-1,std::memory_order_release);return;}
         if(!held[n]){held[n]=session(n);if(sender){route[n]=held[n]->claim();if(route[n]<0){held[n].reset();return;}}
             else{held[n]->masters.fetch_add(1);held[n]->engine.setRoute(0,1,"Master",field::Kind::Bus);}}
-        if(sender)held[n]->engine.setRoute(route[n],uint64_t(route[n]+1000),sourceName,field::Kind::Source);
+        if(sender)held[n]->engine.setRoute(route[n],sourceId,sourceName,field::Kind::Source);
         if(processSetup.sampleRate>=8000)held[n]->engine.setRate(processSetup.sampleRate);
         active.store(n,std::memory_order_release);
     }
@@ -63,6 +66,13 @@ public:
     tresult PLUGIN_API setupProcessing(ProcessSetup& setup) override{auto result=SingleComponentEffect::setupProcessing(setup);
         for(auto& s:held)if(s)s->engine.setRate(setup.sampleRate);return result;}
     tresult PLUGIN_API setProcessing(TBool) override{return kResultOk;}
+    ParamValue PLUGIN_API getParamNormalized(ParamID id) override {
+        return id==0?(bypass.load(std::memory_order_relaxed)?1.:0.):SingleComponentEffect::getParamNormalized(id);
+    }
+    tresult PLUGIN_API setParamNormalized(ParamID id,ParamValue value) override {
+        if(id==0)bypass.store(value>=.5,std::memory_order_relaxed);
+        return SingleComponentEffect::setParamNormalized(id,value);
+    }
     tresult PLUGIN_API setBusArrangements(SpeakerArrangement* in,int32 ni,SpeakerArrangement* out,int32 no) override{
         if(ni!=1||no!=1||!in||!out||in[0]!=out[0]||(in[0]!=SpeakerArr::kMono&&in[0]!=SpeakerArr::kStereo))return kResultFalse;
         return SingleComponentEffect::setBusArrangements(in,ni,out,no);}
@@ -73,8 +83,13 @@ public:
         if(out)for(int c=0;c<d.outputs[0].numChannels;++c)field::passthrough(in&&c<channels?in[c]:nullptr,out[c],d.numSamples);
     }
     tresult PLUGIN_API process(ProcessData& d) override{
+        if(d.inputParameterChanges){int count=std::min<int32>(d.inputParameterChanges->getParameterCount(),128);
+            for(int i=0;i<count;++i){auto* q=d.inputParameterChanges->getParameterData(i);if(!q||q->getParameterId()!=0)continue;
+                int32 points=q->getPointCount(),offset=0;ParamValue value=0;
+                if(points>0&&q->getPoint(points-1,offset,value)==kResultOk)bypass.store(value>=.5,std::memory_order_relaxed);}}
         if(d.numSamples<0)return kInvalidArgument;int n=active.load(std::memory_order_acquire);Session* s=n>=0?held[n].get():nullptr;
         double start=field::nowMs();int lane=sender?(n>=0?route[n]:-1):0;
+        if(bypass.load(std::memory_order_relaxed))lane=-1;
         if(s&&!sender&&s->senders.load()>0)lane=-1;
         int channels=d.numInputs>0?d.inputs[0].numChannels:0;
         if(d.numOutputs>0){if(d.symbolicSampleSize==kSample32)audio(d,d.numInputs>0?d.inputs[0].channelBuffers32:nullptr,d.outputs[0].channelBuffers32,channels,s,lane);
@@ -85,18 +100,27 @@ public:
     IPlugView* PLUGIN_API createView(FIDString type) override {if(type&&std::strcmp(type,ViewType::kEditor)==0){try{return new Editor(*this);}catch(...){}}return nullptr;}
     tresult PLUGIN_API getState(IBStream* stream) override{
         if(!stream)return kInvalidArgument;try{int n=active.load();std::vector<uint8_t> state;
-            if(!sender&&n>=0)state=held[n]->engine.save();uint32_t header[]={0x31565346,uint32_t(n+1),uint32_t(state.size()),uint32_t(sourceName.size())};int32 written=0;
+            if(!sender&&n>=0)state=held[n]->engine.save();uint32_t header[]={0x32565346,uint32_t(n+1),uint32_t(state.size()),uint32_t(sourceName.size()),uint32_t(sourceId),uint32_t(sourceId>>32),uint32_t(bypass.load())};int32 written=0;
             if(stream->write(header,sizeof(header),&written)!=kResultOk||written!=sizeof(header))return kResultFalse;
-            if(!state.empty())stream->write(state.data(),int32(state.size()),&written);stream->write(sourceName.data(),int32(sourceName.size()),&written);return kResultOk;
+            if(!state.empty()&&(stream->write(state.data(),int32(state.size()),&written)!=kResultOk||written!=int32(state.size())))return kResultFalse;
+            if(!sourceName.empty()&&(stream->write(sourceName.data(),int32(sourceName.size()),&written)!=kResultOk||written!=int32(sourceName.size())))return kResultFalse;
+            return kResultOk;
         }catch(...){return kResultFalse;}}
     tresult PLUGIN_API setState(IBStream* stream) override{
-        if(!stream)return kInvalidArgument;try{uint32_t h[4]{};int32 read=0;
-            if(stream->read(h,sizeof(h),&read)!=kResultOk||read!=sizeof(h)||h[0]!=0x31565346||h[1]>16||h[2]>128000||h[3]>95)return kResultFalse;
+        if(!stream)return kInvalidArgument;try{uint32_t h[7]{};int32 read=0;
+            if(stream->read(h,sizeof(h),&read)!=kResultOk||read!=sizeof(h)||h[0]!=0x32565346||h[1]>16||h[2]>128000||h[3]>95||h[6]>1)return kResultFalse;
             std::vector<uint8_t> state(h[2]);std::string name(h[3],' ');
             if(h[2]&&(stream->read(state.data(),int32(h[2]),&read)!=kResultOk||read!=int32(h[2])))return kResultFalse;
             if(h[3]&&(stream->read(name.data(),int32(h[3]),&read)!=kResultOk||read!=int32(h[3])))return kResultFalse;
-            sourceName=name;connect(int(h[1])-1);int n=active.load();if(!sender&&n>=0&&!state.empty()&&!held[n]->engine.restore(state.data(),state.size()))return kResultFalse;return kResultOk;
+            sourceName=name;sourceId=uint64_t(h[4])|(uint64_t(h[5])<<32);if(!sourceId)return kResultFalse;
+            connect(int(h[1])-1);int n=active.load();if(!sender&&n>=0&&!state.empty()&&!held[n]->engine.restore(state.data(),state.size()))return kResultFalse;
+            setParamNormalized(0,h[6]?1.:0.);return kResultOk;
         }catch(...){return kResultFalse;}}
+    tresult PLUGIN_API setComponentState(IBStream* stream) override {
+        if(!stream)return kInvalidArgument;uint32_t h[7]{};int32 read=0;
+        if(stream->read(h,sizeof(h),&read)!=kResultOk||read!=sizeof(h)||h[0]!=0x32565346||h[6]>1)return kResultFalse;
+        return setParamNormalized(0,h[6]?1.:0.);
+    }
 };
 Editor::Editor(Plugin& p):plugin(p){rect={0,0,p.sender?400:1200,p.sender?200:760};}
 tresult Editor::attached(void* parent,FIDString type){

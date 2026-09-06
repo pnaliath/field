@@ -40,7 +40,9 @@ int main(){try{
     auto p=e->preferences();p.yaw=.8f;p.selected=2;e->setPreferences(p);e->setVisible(1,false);
     auto state=e->save();auto restored=std::make_unique<field::Engine>();restored->stop();
     require(restored->restore(state.data(),state.size()),"state roundtrip");require(!restored->snapshot().routes[1].visible,"hidden state");
-    require(restored->preferences().selected==2,"selection persists");state[state.size()/2]^=0x55;
+    require(restored->preferences().selected==2,"selection persists");
+    restored->setRoute(6,102,"Hat moved");require(!restored->snapshot().routes[6].visible,"route reorder retains source visibility");
+    state[state.size()/2]^=0x55;
     require(!restored->restore(state.data(),state.size()),"corrupt state rejected");require(!restored->restore(state.data(),8),"truncated state rejected");
     for(int i=0;i<800;++i){std::array<uint8_t,128> garbage;for(auto& c:garbage)c=uint8_t(random());require(!restored->restore(garbage.data(),garbage.size()),"malformed state rejected");}
     field::SampleRing<1024> ring;std::atomic<bool> done{false};
