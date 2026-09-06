@@ -40,7 +40,8 @@ LRESULT View::message(UINT m,WPARAM w,LPARAM l){
     case WM_PAINT:paint();return 0;
     case WM_LBUTTONDOWN:last={GET_X_LPARAM(l),GET_Y_LPARAM(l)};moved=false;dragging=last.x>238&&last.y>68;if(dragging)SetCapture(hwnd);return 0;
     case WM_MOUSEMOVE:if(dragging){int x=GET_X_LPARAM(l),y=GET_Y_LPARAM(l);if(std::abs(x-last.x)+std::abs(y-last.y)>2)moved=true;
-        prefs.yaw+=(x-last.x)*.007f;prefs.pitch=std::clamp(prefs.pitch+(y-last.y)*.006f,-1.5f,1.5f);last={x,y};InvalidateRect(hwnd,nullptr,FALSE);}return 0;
+        prefs.yaw+=(x-last.x)*.007f;prefs.pitch=std::clamp(prefs.pitch+(y-last.y)*.006f,-1.5f,1.5f);last={x,y};
+        engine.setPreferences(prefs);InvalidateRect(hwnd,nullptr,FALSE);}return 0;
     case WM_LBUTTONUP:if(dragging){dragging=false;ReleaseCapture();savePrefs();}if(!moved)click(GET_X_LPARAM(l),GET_Y_LPARAM(l));return 0;
     case WM_LBUTTONDBLCLK:if(GET_X_LPARAM(l)>238){prefs.yaw=.38f;prefs.pitch=.2f;prefs.zoom=1;savePrefs();}return 0;
     case WM_MOUSEWHEEL:{POINT p{GET_X_LPARAM(l),GET_Y_LPARAM(l)};ScreenToClient(hwnd,&p);int steps=GET_WHEEL_DELTA_WPARAM(w)/WHEEL_DELTA;
@@ -134,7 +135,7 @@ void View::paint(){
     text(g,L"Learn",445,25,70,25,Color(255,184,199,204),13);text(g,L"Settings",550,25,85,25,Color(255,184,199,204),13);
     text(g,mode+L"  /  Local analysis",float(client.right-265),26,240,20,Color(255,104,151,144),12);
     text(g,L"SOURCES",22,84,150,22,Color(255,112,133,144),11,true);
-    rows.clear();for(int r=0;r<Routes;++r)if(frame.routes[r].id)rows.push_back(r);
+    rows.clear();for(int r=0;r<Routes;++r){const auto& v=frame.routes[r];if(v.id&&(v.present||v.provisional||v.ready||v.lastSignalMs>0))rows.push_back(r);}
     text(g,std::to_wstring(rows.size()),195,84,30,22,Color(255,112,133,144),11);
     int maxRows=std::max(0,(int(client.bottom)-160)/34);scroll=std::clamp(scroll,0,std::max(0,int(rows.size())-maxRows));
     for(int row=scroll;row<int(rows.size())&&row<scroll+maxRows;++row){int r=rows[row];const auto& v=frame.routes[r];float y=112.f+(row-scroll)*34;
@@ -159,10 +160,10 @@ void View::paint(){
     g.SetClip(Rect(int(room.left),int(room.top-24),int(room.right-room.left),int(room.bottom-room.top+55)));
     for(int i:order){const auto& v=frame.routes[i];if(v.sustained){
             if(v.voices==2){body(g,v,i,room,v.voicePan[0],v.z,v.width,v.presence,v.shape,2);body(g,v,i,room,v.voicePan[1],v.z,v.width,v.presence,v.shape,2);}
-            else body(g,v,i,room,v.pan,v.z,v.width,v.presence,v.shape,1);
+            else body(g,v,i,room,v.stablePan,v.z,v.width,v.presence,v.shape,1);
         }else{float age=float(start-v.eventMs),life=v.eventLife;float p=v.eventMs>0?unit(1-std::max(0.f,age-80)/std::max(1.f,life-80)):0;
             if(p>0)body(g,v,i,room,v.eventPan,v.eventZ,v.eventWidth,p,v.eventShape,v.voices);
-            else if(v.present)body(g,v,i,room,v.pan,v.z,v.width,v.presence,v.shape,v.voices);}}
+            else if(v.present)body(g,v,i,room,v.stablePan,v.z,v.width,v.presence,v.shape,v.voices);}}
     g.ResetClip();
     if(frame.active==0&&order.empty()){text(g,L"Play your session.",420,290,620,46,Color(255,207,220,225),28,true);
         text(g,mode==L"FL Native"?L"Field maps the mixer routes exposed by FL Studio.":L"Insert Field Sender on sources and select the same Link session.",420,340,680,28,Color(255,117,145,159),14);}
@@ -170,7 +171,7 @@ void View::paint(){
         SolidBrush panel(Color(245,21,31,39));g.FillRectangle(&panel,x,y,268.f,199.f);Pen edge(Color(255,49,67,78));g.DrawRectangle(&edge,x,y,268.f,199.f);
         text(g,wide(v.name),x+16,y+12,236,27,color(v),16,true);text(g,wide(kindName(v.kind))+(v.sustained?L" / Sustained":L" / Transient"),x+16,y+44,236,23,Color(255,139,163,174),12);
         const auto& m=rendered[prefs.selected];float z=m.drawn?m.z:v.z;
-        text(g,L"Pan "+number(v.pan*100,0)+L"    Width "+number(v.width*100,0)+L"%",x+16,y+75,240,22,Color(255,190,208,216),12);
+        text(g,L"Pan "+number(v.stablePan*100,0)+L" (live "+number(v.pan*100,0)+L")   Width "+number(v.width*100,0)+L"%",x+16,y+75,240,22,Color(255,190,208,216),12);
         text(g,L"Depth "+number(z,2)+L"    Voices "+std::to_wstring(v.voices),x+16,y+100,240,22,Color(255,190,208,216),12);
         text(g,number(v.low,0)+L" Hz - "+number(v.high,0)+L" Hz",x+16,y+125,240,22,Color(255,190,208,216),12);
         text(g,L"Peak "+number(v.peak)+L" dB   RMS "+number(v.rms)+L" dB",x+16,y+150,240,22,Color(255,139,163,174),11);}
@@ -184,12 +185,12 @@ void View::exportLog(){if(log){fclose(log);log=nullptr;return;}wchar_t file[MAX_
     OPENFILENAMEW ofn{};ofn.lStructSize=sizeof(ofn);ofn.hwndOwner=hwnd;ofn.lpstrFile=file;ofn.nMaxFile=MAX_PATH;
     ofn.lpstrFilter=L"CSV diagnostics\0*.csv\0\0";ofn.lpstrDefExt=L"csv";ofn.Flags=OFN_OVERWRITEPROMPT|OFN_PATHMUSTEXIST;
     if(GetSaveFileNameW(&ofn)&&_wfopen_s(&log,file,L"wb")==0&&log)
-        fprintf(log,"timestamp,route,route_name,route_type,peak_db,rms_db,presence,live_pan,stable_pan,width,depth,voice_count,profile_ready,display_profile_ready,rendered,low_hz,high_hz,dominant_hz,onset_count,last_onset_ms,onset_to_visible_ms,reverb_confidence,delay_confidence,audio_callback_ms,analysis_ms,paint_ms,fps,queue_depth,dropped_samples\n");
+        fprintf(log,"timestamp,route,route_name,route_type,peak_db,rms_db,presence,live_pan,stable_pan,width,depth,voice_count,profile_ready,display_profile_ready,rendered,low_hz,high_hz,dominant_hz,onset_count,last_onset_ms,onset_to_visible_ms,reverb_amount,delay_amount,fx_confidence,fx_source,audio_callback_ms,analysis_ms,paint_ms,fps,queue_depth,dropped_samples\n");
 }
-void View::writeLog(){if(!log)return;for(int i=0;i<Routes;++i){const auto& v=frame.routes[i];if(!v.id)continue;auto& m=rendered[i];std::string name=v.name;
+void View::writeLog(){if(!log)return;for(int i=0;i<Routes;++i){const auto& v=frame.routes[i];if(!v.id||(!(v.present||v.provisional||v.ready||v.lastSignalMs>0)))continue;auto& m=rendered[i];std::string name=v.name;
     size_t pos=0;while((pos=name.find('"',pos))!=std::string::npos){name.insert(pos,1,'"');pos+=2;}
-    fprintf(log,"%.3f,%d,\"%s\",%s,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%d,%.2f,%.2f,%.2f,%u,%.3f,%.3f,%.3f,%.3f,%.4f,%.4f,%.4f,%.2f,%u,%llu\n",
-        frame.timeMs,i+1,name.c_str(),kindName(v.kind),v.peak,v.rms,m.presence,v.pan,v.stablePan,m.width,m.z,v.voices,int(v.ready),int(v.provisional),int(m.drawn),m.low,m.high,m.dominant,v.onsetCount,v.onsetMs,m.drawn?m.delay:-1.,v.reverb,v.delay,engine.callbackMs.load(),frame.analysisMs,paintMs,fps,frame.queueDepth,(unsigned long long)frame.dropped);}
+    fprintf(log,"%.3f,%d,\"%s\",%s,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%d,%.2f,%.2f,%.2f,%u,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%.4f,%.4f,%.4f,%.2f,%u,%llu\n",
+        frame.timeMs,i+1,name.c_str(),kindName(v.kind),v.peak,v.rms,m.presence,v.pan,v.stablePan,m.width,m.z,v.voices,int(v.ready),int(v.provisional),int(m.drawn),m.low,m.high,m.dominant,v.onsetCount,v.onsetMs,m.drawn?m.delay:-1.,v.reverb,v.delay,v.fxConfidence,v.fxSource>=0?v.fxSource+1:0,engine.callbackMs.load(),frame.analysisMs,paintMs,fps,frame.queueDepth,(unsigned long long)frame.dropped);}
     if(ferror(log)){fclose(log);log=nullptr;}else fflush(log);
 }
 }
