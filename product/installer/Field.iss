@@ -1,19 +1,20 @@
 [Setup]
 AppId={{F58F6161-9433-4824-AE91-72178FB98A4E}
-AppName=Field 1.0 Beta
+AppName=Field 1.0 Beta Demo
 AppVersion=1.0.0-beta.1
 AppPublisher=Field
-DefaultDirName={autopf}\Field Beta
+DefaultDirName={autopf}\Field Beta Demo
 OutputDir=..\..\package
-OutputBaseFilename=Field-1.0.0-beta.1-Windows-x64-Setup
+OutputBaseFilename=Field-1.0.0-beta.1-Demo-Windows-x64-Setup
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 Compression=lzma2
 SolidCompression=yes
-UninstallDisplayName=Field 1.0 Beta
+UninstallDisplayName=Field 1.0 Beta Demo
 WizardStyle=modern
 LicenseFile=..\..\LICENSE
+InfoBeforeFile=..\docs\DEMO-NOTICE.txt
 
 [Types]
 Name: "full"; Description: "VST3 and FL native"
@@ -29,6 +30,8 @@ Source: "..\..\package\FieldVST3.vst3\*"; DestDir: "{commoncf64}\VST3\FieldVST3.
 Source: "..\..\package\Field 1 Beta\*"; DestDir: "{code:FLPath}\Plugins\Fruity\Effects\Field 1 Beta"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: native
 Source: "..\docs\USER-GUIDE.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\docs\RELEASE-GATES.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\docs\DEMO-NOTICE.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "FIELD-DEMO-LICENSE.txt"; Flags: ignoreversion
 
 [Code]
 var FLPage: TInputDirWizardPage;
