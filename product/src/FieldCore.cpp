@@ -170,22 +170,26 @@ void Engine::analyse(int route,double now){
 void Engine::relationships(){
     for(int attempt=0;attempt<4;++attempt){int r=relationshipCursor++%Routes;auto& v=view.routes[r];auto& dst=learned[r];
         if(!v.id||!v.ready||dst.envelopeCount<100)continue;if(v.kind==Kind::Bus||v.kind==Kind::Parallel||v.kind==Kind::Source)continue;
-        float best=.965f;int match=-1,bestLag=0;
-        for(int s=0;s<Routes;++s){if(s==r||!view.routes[s].id||!view.routes[s].ready)continue;auto& src=learned[s];if(src.envelopeCount<100)continue;
+        bool namedFx=kindLocked[r]&&(v.kind==Kind::Reverb||v.kind==Kind::Delay);
+        float best=namedFx?.88f:.965f;float shapeGate=namedFx?.62f:.78f;float lagMargin=namedFx?-.02f:.035f;int match=-1,bestLag=0;
+        for(int s=0;s<Routes;++s){if(s==r||!view.routes[s].id||!view.routes[s].ready)continue;
+            Kind sourceKind=view.routes[s].kind;if(sourceKind==Kind::Reverb||sourceKind==Kind::Delay||sourceKind==Kind::Bus||sourceKind==Kind::Parallel)continue;
+            auto& src=learned[s];if(src.envelopeCount<100)continue;
             double dot=0,aa=0,bb=0;for(int b=0;b<Bands;++b){double a=view.routes[s].shape[b],c=v.shape[b];dot+=a*c;aa+=a*a;bb+=c*c;}
-            if(dot/std::sqrt(aa*bb+1.e-12)<.78)continue;
+            if(dot/std::sqrt(aa*bb+1.e-12)<shapeGate)continue;
             auto corr=[&](int lag){double x=0,y=0,xx=0,yy=0,xy=0;int n=96;
                 for(int i=0;i<n;++i){double a=src.envelope[(src.envelopePos-1-i-lag+512)%256],b=dst.envelope[(dst.envelopePos-1-i+512)%256];x+=a;y+=b;xx+=a*a;yy+=b*b;xy+=a*b;}
                 double den=std::sqrt(std::max(0.,(xx-x*x/n)*(yy-y*y/n)));return den>1.e-10?float((xy-x*y/n)/den):0.f;};
-            float zero=corr(0);for(int lag:{2,4,8,12,16,24,32,48,64}){float c=corr(lag);if(c>best&&c>zero+.035f){best=c;match=s;bestLag=lag;}}}
+            float zero=corr(0);for(int lag:{2,4,8,12,16,24,32,48,64}){float c=corr(lag);if(c>best&&c>zero+lagMargin){best=c;match=s;bestLag=lag;}}}
         if(match>=0){int cls=bestLag>=8?2:1;if(dst.fxCandidateSource==match&&dst.fxCandidateClass==cls)dst.fxCandidateHits=std::min(12,dst.fxCandidateHits+1);
             else{dst.fxCandidateSource=match;dst.fxCandidateClass=cls;dst.fxCandidateHits=1;}
             v.fxSource=match;v.fxConfidence=best;
             if(!kindLocked[r]&&v.kind==Kind::Unknown&&dst.fxCandidateHits>=4)v.kind=cls==2?Kind::Delay:Kind::Reverb;}
         else{dst.fxCandidateHits=std::max(0,dst.fxCandidateHits-1);v.fxConfidence*=.94f;if(v.fxConfidence<.8f)v.fxSource=-1;}}
     for(auto& v:view.routes){v.reverb=0;v.delay=0;}
-    for(const auto& v:view.routes)if((v.kind==Kind::Reverb||v.kind==Kind::Delay)&&v.fxSource>=0&&v.fxSource<Routes&&v.fxConfidence>.965f){auto& s=view.routes[v.fxSource];
-        float amount=unit(v.presence*v.fxConfidence);if(v.kind==Kind::Delay)s.delay=std::max(s.delay,amount);else s.reverb=std::max(s.reverb,amount);}
+    for(int r=0;r<Routes;++r){const auto& v=view.routes[r];bool namedFx=kindLocked[r]&&(v.kind==Kind::Reverb||v.kind==Kind::Delay);float confidenceGate=namedFx?.88f:.965f;
+        if((v.kind==Kind::Reverb||v.kind==Kind::Delay)&&v.fxSource>=0&&v.fxSource<Routes&&v.fxConfidence>confidenceGate){auto& s=view.routes[v.fxSource];
+            float amount=unit(v.presence*v.fxConfidence);if(v.kind==Kind::Delay)s.delay=std::max(s.delay,amount);else s.reverb=std::max(s.reverb,amount);}}
 }
 std::vector<uint8_t> Engine::save() const {
     std::lock_guard<std::mutex> lock(mutex);Writer w;w.u(0x31444c46);w.u(2);
