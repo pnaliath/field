@@ -19,7 +19,7 @@ void text(Graphics& g,const std::wstring& s,float x,float y,float w,float h,Colo
 std::wstring number(float v,int decimals=1){std::wostringstream s;s<<std::fixed<<std::setprecision(decimals)<<v;return s.str();}
 bool overlap(const RectF& a,const RectF& b){return a.X<b.GetRight()&&a.GetRight()>b.X&&a.Y<b.GetBottom()&&a.GetBottom()>b.Y;}
 }
-View::~View(){if(log)fclose(log);if(hwnd)DestroyWindow(hwnd);if(gdiplus)GdiplusShutdown(gdiplus);}
+View::~View(){if(log)fclose(log);backBuffer.reset();if(hwnd)DestroyWindow(hwnd);if(gdiplus)GdiplusShutdown(gdiplus);}
 bool View::attach(HWND parent){
     GdiplusStartupInput input;if(GdiplusStartup(&gdiplus,&input,nullptr)!=Ok)return false;
     WNDCLASSEXW wc{};wc.cbSize=sizeof(wc);wc.style=CS_DBLCLKS;wc.lpfnWndProc=proc;wc.hInstance=instance;
@@ -126,7 +126,8 @@ void View::paint(){
     double start=nowMs();frame=engine.snapshot();prefs=engine.preferences();for(auto& r:rendered)r=Rendered{};labelRects.clear();
     PAINTSTRUCT ps{};HDC dc=BeginPaint(hwnd,&ps);RECT client;GetClientRect(hwnd,&client);
     if(client.right<=0||client.bottom<=0){EndPaint(hwnd,&ps);return;}
-    Bitmap bitmap(client.right,client.bottom,PixelFormat32bppPARGB);Graphics g(&bitmap);g.SetSmoothingMode(SmoothingModeAntiAlias);g.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
+    if(!backBuffer||backW!=client.right||backH!=client.bottom){backW=client.right;backH=client.bottom;backBuffer=std::make_unique<Bitmap>(backW,backH,PixelFormat32bppPARGB);}
+    Graphics g(backBuffer.get());g.SetSmoothingMode(SmoothingModeAntiAlias);g.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
     g.Clear(Color(255,13,19,24));SolidBrush side(Color(255,19,27,33));g.FillRectangle(&side,0,0,238,client.bottom);
     Pen separator(Color(255,40,53,62));g.DrawLine(&separator,238,0,238,client.bottom);g.DrawLine(&separator,0,66,client.right,66);
     text(g,L"FIELD",24,17,130,30,Color(255,226,235,238),24,true);
@@ -177,7 +178,7 @@ void View::paint(){
         text(g,L"Peak "+number(v.peak)+L" dB   RMS "+number(v.rms)+L" dB",x+16,y+150,240,22,Color(255,139,163,174),11);}
     text(g,L"Drag to orbit    Scroll to zoom    Double-click to reset",280,float(client.bottom-32),540,20,Color(255,96,122,138),11);
     if(diagnostics){text(g,L"Audio "+number(float(engine.callbackMs.load()),3)+L" ms   Analysis "+number(float(frame.analysisMs),2)+L" ms   Paint "+number(float(paintMs),2)+L" ms   "+number(float(fps),0)+L" FPS   Dropped "+std::to_wstring(frame.dropped),270,77,900,22,Color(255,218,177,109),11);}
-    Graphics target(dc);target.DrawImage(&bitmap,0,0);EndPaint(hwnd,&ps);
+    Graphics target(dc);target.DrawImage(backBuffer.get(),0,0);EndPaint(hwnd,&ps);
     paintMs=nowMs()-start;if(lastPaint)fps=1000./std::max(1.,start-lastPaint);lastPaint=start;
     if(log&&start-lastLog>100){writeLog();lastLog=start;}
 }
