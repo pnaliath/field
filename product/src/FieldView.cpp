@@ -69,7 +69,7 @@ LRESULT View::message(UINT m,WPARAM w,LPARAM l){
     case WM_PAINT:paint();return 0;
     case WM_LBUTTONDOWN:last={GET_X_LPARAM(l),GET_Y_LPARAM(l)};moved=false;dragging=last.x>SidebarWidth&&last.y>68;if(dragging)SetCapture(hwnd);return 0;
     case WM_MOUSEMOVE:if(dragging){int x=GET_X_LPARAM(l),y=GET_Y_LPARAM(l);if(std::abs(x-last.x)+std::abs(y-last.y)>2)moved=true;
-        prefs.yaw+=(x-last.x)*.007f;prefs.pitch=std::clamp(prefs.pitch+(y-last.y)*.006f,-1.5f,1.5f);last={x,y};engine.setPreferences(prefs);InvalidateRect(hwnd,nullptr,FALSE);}return 0;
+        prefs.yaw-=(x-last.x)*.007f;prefs.pitch=std::clamp(prefs.pitch-(y-last.y)*.006f,-1.5f,1.5f);last={x,y};engine.setPreferences(prefs);InvalidateRect(hwnd,nullptr,FALSE);}return 0;
     case WM_LBUTTONUP:if(dragging){dragging=false;ReleaseCapture();savePrefs();}if(!moved)click(GET_X_LPARAM(l),GET_Y_LPARAM(l));return 0;
     case WM_LBUTTONDBLCLK:if(GET_X_LPARAM(l)>SidebarWidth){prefs.yaw=.38f;prefs.pitch=.2f;prefs.zoom=1;savePrefs();}return 0;
     case WM_MOUSEWHEEL:{POINT p{GET_X_LPARAM(l),GET_Y_LPARAM(l)};ScreenToClient(hwnd,&p);int steps=GET_WHEEL_DELTA_WPARAM(w)/WHEEL_DELTA;
@@ -246,6 +246,31 @@ void View::paint(){
     g.SetClip(Rect(int(room.left),int(room.top-12),int(room.right-room.left),int(room.bottom-room.top+32)));
     for(int i:order){const auto& v=frame.routes[i];if(v.sustained){if(v.voices==2){body(g,v,i,room,v.voicePan[0],v.z,v.width,v.presence,v.shape,2);body(g,v,i,room,v.voicePan[1],v.z,v.width,v.presence,v.shape,2);}else body(g,v,i,room,v.stablePan,v.z,v.width,v.presence,v.shape,1);}
         else{float age=float(start-v.eventMs),life=v.eventLife;float p=v.eventMs>0?unit(1-std::max(0.f,age-80)/std::max(1.f,life-80)):0;if(p>0){bool hasEvent=false;for(float s:v.eventShape)if(s>.12f){hasEvent=true;break;}body(g,v,i,room,v.eventPan,v.eventZ,v.eventWidth,p,hasEvent?v.eventShape:v.shape,v.voices);}else if(v.present)body(g,v,i,room,v.stablePan,v.z,v.width,v.presence,v.shape,v.voices);}}
+
+    if(prefs.fx){
+        for(int fxIndex=0;fxIndex<Routes;++fxIndex){const auto& fx=frame.routes[fxIndex];bool isRev=fx.kind==Kind::Reverb,isDelay=fx.kind==Kind::Delay;
+            if(!fx.id||!fx.provisional||(!isRev&&!isDelay))continue;
+            float activity=std::max(fx.presence,std::max(unit((fx.peak+72.f)/52.f),unit((fx.rms+75.f)/55.f)));if(activity<.035f)continue;
+            int anchor=-1;if(fx.fxSource>=0&&fx.fxSource<Routes&&frame.routes[fx.fxSource].id&&!auxiliaryFx(frame.routes[fx.fxSource]))anchor=fx.fxSource;
+            if(anchor<0){float best=-1.f;for(int s:order){const auto& candidate=frame.routes[s];double dot=0,aa=0,bb=0;for(int b=0;b<Bands;++b){double a=candidate.shape[b],c=fx.shape[b];dot+=a*c;aa+=a*a;bb+=c*c;}
+                    float score=float(dot/std::sqrt(aa*bb+1.e-12));score*=.65f+.35f*candidate.presence;if(score>best){best=score;anchor=s;}}}
+            const RouteView& a=anchor>=0?frame.routes[anchor]:fx;const auto& sh=(anchor>=0&&a.provisional)?a.shape:fx.shape;int lo=Bands,hi=-1;
+            for(int b=0;b<Bands;++b)if(sh[b]>.12f){lo=std::min(lo,b);hi=b;}if(lo>hi)continue;
+            float pan=anchor>=0?a.stablePan:fx.stablePan,z=anchor>=0?a.z:fx.z;const RouteView& tint=anchor>=0?a:fx;uint32_t seed=uint32_t(fx.id)^uint32_t(fxIndex*0x9e3779b9u);
+            if(isRev){int count=24+int(28.f*activity);if(frame.active>12)count=std::max(18,count-10);
+                for(int p=0;p<count;++p){uint32_t s=seed+uint32_t(p*0x85ebca6bu);float n0=noise01(s),n1=noise01(s+1),n2=noise01(s+2),n3=noise01(s+3);int b=std::clamp(lo+int(n0*float(hi-lo+1)),lo,hi);if(sh[b]<=.12f)continue;
+                    float gain=std::pow(unit(sh[b]),.70f),phase=float(frame.timeMs*.00045)+6.2831853f*n1;float shell=.11f+.23f*gain+activity*(.08f+.13f*n2);
+                    float px=pan+shell*std::cos(phase)*(1.15f+.45f*n2);float py=std::clamp(float(b)/75.f+(n3-.5f)*(.10f+.12f*activity),0.f,1.f);float pz=std::clamp(z+shell*.85f*std::sin(phase)+(.03f+.12f*n0)*activity,RoomFront,RoomBack);
+                    auto q=project(px,py,pz,room);float size=2.8f+3.8f*n2;int alpha=int((70.f+125.f*activity)*(.65f+.35f*n3));SolidBrush particle(color(tint,alpha));g.FillEllipse(&particle,q.X-size*.5f,q.Y-size*.5f,size,size);}
+            }else{int perEcho=7+int(5.f*activity);float dir=(anchor>=0?((anchor&1)?1.f:-1.f):1.f);
+                for(int echo=1;echo<=3;++echo){float fade=1.f-float(echo-1)*.24f;for(int p=0;p<perEcho;++p){uint32_t s=seed+uint32_t(echo*211+p*31);float n0=noise01(s),n1=noise01(s+2),n2=noise01(s+5);int b=std::clamp(lo+int(n0*float(hi-lo+1)),lo,hi);if(sh[b]<=.12f)continue;
+                        float px=pan+dir*(.14f+.045f*activity)*echo+(n1-.5f)*.10f;float py=std::clamp(float(b)/75.f+(n2-.5f)*.06f,0.f,1.f);float pz=std::clamp(z+(.105f+.04f*activity)*echo+(n0-.5f)*.05f,RoomFront,RoomBack);
+                        auto q=project(px,py,pz,room);float size=3.f+3.2f*n1;int alpha=int((90.f+135.f*activity)*fade);SolidBrush particle(color(tint,alpha));g.FillRectangle(&particle,q.X-size*.5f,q.Y-size*.5f,size,size);}}
+            }
+            auto badge=project(pan,float(hi)/75.f,std::clamp(z+.05f,RoomFront,RoomBack),room);text(g,isRev?L"REV":L"DEL",badge.X+8,badge.Y-8,42,18,color(tint,185),10,true);
+        }
+    }
+
     g.ResetClip();if(order.empty()){text(g,L"Play your session or show a source.",420,290,620,46,Color(255,207,220,225),28,true);text(g,mode==L"FL Native"?L"Field maps the mixer routes exposed by FL Studio.":L"Insert Field Sender on sources and select the same Link session.",420,340,680,28,Color(255,117,145,159),14);}
     if(prefs.selected>=0&&prefs.selected<Routes&&frame.routes[prefs.selected].id&&!auxiliaryFx(frame.routes[prefs.selected])){auto& v=frame.routes[prefs.selected];float x=float(client.right-295),y=float(client.bottom-255);SolidBrush panel(Color(245,21,31,39));g.FillRectangle(&panel,x,y,268.f,199.f);Pen edge(Color(255,49,67,78));g.DrawRectangle(&edge,x,y,268.f,199.f);
         Pen closePen(Color(255,146,164,173),1.4f);g.DrawLine(&closePen,x+242,y+12,x+255,y+25);g.DrawLine(&closePen,x+255,y+12,x+242,y+25);
