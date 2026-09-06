@@ -1,21 +1,36 @@
-MIT License
+FIELD COMMERCIAL DEMO / EVALUATION LICENSE
+Copyright (c) 2026 Field. All rights reserved.
 
-Copyright (c) 2026 Field
+IMPORTANT: THIS IS PROPRIETARY COMMERCIAL SOFTWARE PROVIDED ONLY AS A DEMO / EVALUATION BUILD.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. Limited evaluation license
+Field grants the authorized recipient a limited, revocable, non-exclusive, non-transferable license to install and use this demo solely for personal or internal evaluation and testing.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+2. No redistribution or transfer
+You may not copy for another person, share, upload, publish, mirror, distribute, transfer, lend, rent, lease, sublicense, bundle, repackage, or otherwise make this software or any installer, binary, plugin, documentation, or derivative package available to any third party without prior written permission from Field.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+3. No resale or commercial exploitation
+You may not sell, resell, charge for, commercially distribute, monetize access to, include in a paid bundle, or otherwise commercially exploit this demo or any part of it. Possession of this demo does not grant resale, distribution, publishing, sublicensing, or ownership rights.
+
+4. No unauthorized modification or derivative distribution
+You may not modify, adapt, create or distribute derivative versions, remove or alter proprietary notices, or present this software as your own product. Reverse engineering, decompilation, or disassembly is prohibited except to the limited extent that applicable law does not permit that restriction.
+
+5. Demo status
+This build is pre-release evaluation software. It is not a final commercial release and may contain incomplete, experimental, or unsupported functionality. Field may change, disable, replace, or withdraw the demo at any time.
+
+6. Ownership
+Field and its licensors retain all right, title, and interest in Field, including all software, binaries, user interface, documentation, branding, and associated intellectual property. No ownership is transferred to you.
+
+7. Third-party components
+Third-party software or components included with Field are governed by their own license notices where applicable. Those third-party licenses apply only to the corresponding third-party components and do not grant permission to copy, redistribute, sell, sublicense, repackage, or commercially exploit Field itself.
+
+8. No warranty
+THE DEMO IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTIES OF ANY KIND, TO THE MAXIMUM EXTENT PERMITTED BY LAW. FIELD DOES NOT WARRANT THAT THE DEMO WILL BE ERROR-FREE, UNINTERRUPTED, FIT FOR A PARTICULAR PURPOSE, OR COMPATIBLE WITH EVERY HOST OR SYSTEM.
+
+9. Limitation of liability
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, FIELD SHALL NOT BE LIABLE FOR INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY, OR BUSINESS-INTERRUPTION DAMAGES ARISING FROM USE OF OR INABILITY TO USE THIS DEMO.
+
+10. Termination
+This license terminates automatically if you breach these terms. On termination, you must stop using the demo and delete all copies in your possession or control.
+
+By installing or using Field 1.0 Beta Demo, you acknowledge that this is proprietary commercial software supplied only for evaluation and that you have no right to sell, redistribute, share, repackage, sublicense, publish, or otherwise provide it to anyone else without prior written permission from Field.
