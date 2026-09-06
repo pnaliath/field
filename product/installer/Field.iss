@@ -16,18 +16,8 @@ WizardStyle=modern
 LicenseFile=..\..\LICENSE
 InfoBeforeFile=..\docs\DEMO-NOTICE.txt
 
-[Types]
-Name: "full"; Description: "VST3 and FL native"
-Name: "vst"; Description: "VST3 only"
-Name: "custom"; Description: "Custom"; Flags: iscustom
-
-[Components]
-Name: "vst"; Description: "Field VST3 and Field Sender"; Types: full vst custom
-Name: "native"; Description: "Field native for FL Studio"; Types: full
-
 [Files]
-Source: "..\..\package\FieldVST3.vst3\*"; DestDir: "{commoncf64}\VST3\FieldVST3.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: vst
-Source: "..\..\package\Field 1 Beta\*"; DestDir: "{code:FLPath}\Plugins\Fruity\Effects\Field 1 Beta"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: native
+Source: "..\..\package\Field 1 Beta\*"; DestDir: "{code:FLPath}\Plugins\Fruity\Effects\Field 1 Beta"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\docs\USER-GUIDE.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\docs\RELEASE-GATES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\docs\DEMO-NOTICE.txt"; DestDir: "{app}"; Flags: ignoreversion
@@ -37,19 +27,15 @@ Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "FIELD-DEMO-LICENSE.txt"; F
 var FLPage: TInputDirWizardPage;
 procedure InitializeWizard;
 begin
-  FLPage := CreateInputDirPage(wpSelectComponents, 'FL Studio installation',
-    'Select the folder containing FL64.exe.', 'The native plugin is installed inside this FL Studio installation.', False, '');
+  FLPage := CreateInputDirPage(wpSelectDir, 'FL Studio installation',
+    'Select the folder containing FL64.exe.', 'Field Demo installs only the FL Studio native one-instance plugin.', False, '');
   FLPage.Add('FL Studio folder:');
   FLPage.Values[0] := ExpandConstant('{autopf}\Image-Line\FL Studio 2026');
-end;
-function ShouldSkipPage(PageID: Integer): Boolean;
-begin
-  Result := (PageID = FLPage.ID) and not WizardIsComponentSelected('native');
 end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
-  if (CurPageID = FLPage.ID) and WizardIsComponentSelected('native') then
+  if CurPageID = FLPage.ID then
     if not FileExists(FLPage.Values[0] + '\FL64.exe') then begin
       MsgBox('Select the existing FL Studio folder containing FL64.exe.', mbError, MB_OK);
       Result := False;
