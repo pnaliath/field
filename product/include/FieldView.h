@@ -25,6 +25,7 @@ private:
     bool dragging=false,moved=false,diagnostics=false;
     POINT last{};int scroll=0;std::vector<int> rows;
     FILE* log=nullptr;double lastPaint=0,lastLog=0,paintMs=0,fps=0;
+    std::unique_ptr<Gdiplus::Bitmap> backBuffer;int backW=0,backH=0;
     struct Rendered {bool drawn=false;float pan=0,width=0,z=0,low=0,high=0,dominant=0,presence=0;double delay=-1;};
     std::array<Rendered,Routes> rendered{};
     std::array<uint32_t,Routes> visibleOnset{};
