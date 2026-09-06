@@ -60,9 +60,6 @@ struct Preferences {
     bool labels=true,grid=true,fx=true;
 };
 
-// One audio producer and one analysis consumer per route. No CAS loops, waits,
-// allocation, or host calls. Consumer may skip stale samples without touching
-// producer-owned memory. Index wrap is defined unsigned arithmetic.
 template<size_t Capacity> struct SampleRing {
     static_assert((Capacity&(Capacity-1))==0);
     struct Sample { float l,r; };
@@ -120,7 +117,6 @@ public:
         auto value=[&](int i) noexcept {
             double l=double(left[size_t(i)*stride]);
             double rr=right?double(right[size_t(i)*stride]):l;
-            // Sanitize analysis only. Host audio is copied separately, bit for bit.
             if(!std::isfinite(l))l=0;if(!std::isfinite(rr))rr=0;
             l=std::clamp(l,-1.e6,1.e6);rr=std::clamp(rr,-1.e6,1.e6);
             return typename SampleRing<16384>::Sample{float(l),float(rr)};
@@ -142,8 +138,6 @@ public:
                 r.onsetCount.fetch_add(1,std::memory_order_release);}
         }
         r.previousRms=rms+(r.previousRms-rms)*float(std::exp(-duration/10.));
-        // Sample transport is skipped for all-zero blocks; wall-clock decay lives
-        // on the worker, so missing host buffers cannot freeze presence.
         if(peak>1.e-8)r.ring.push(n,value);
     }
 private:
@@ -163,10 +157,11 @@ private:
         std::array<float,256> envelope{};
         int envelopePos=0,envelopeCount=0;
         int panCount=0,panPos=0;
+        int fxCandidateSource=-1,fxCandidateClass=0,fxCandidateHits=0;
         double lastAnalysis=0,lastUpdate=0,signalStart=0,eqSince=0,lastOnset=0;
         float level=-180,activeDuration=100,profileDifference=0;
         int changedFrames=0;
-        bool restored=false;
+        bool restored=false,panAnchored=false;
     };
     std::array<std::unique_ptr<Audio>,Routes> audio;
     std::array<Learner,Routes> learned{};
