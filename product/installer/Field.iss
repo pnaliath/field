@@ -25,22 +25,67 @@ Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "FIELD-DEMO-LICENSE.txt"; F
 
 [Code]
 var FLPage: TInputDirWizardPage;
+
+function IsFLFolder(Path: String): Boolean;
+begin
+  Result := FileExists(AddBackslash(Path) + 'FL64.exe');
+end;
+
+function DetectFLStudio: String;
+var
+  Candidate: String;
+begin
+  Result := '';
+
+  Candidate := ExpandConstant('{autopf}\Image-Line\FL Studio 2026');
+  if IsFLFolder(Candidate) then begin Result := Candidate; Exit; end;
+
+  Candidate := ExpandConstant('{autopf}\Image-Line\FL Studio 2025');
+  if IsFLFolder(Candidate) then begin Result := Candidate; Exit; end;
+
+  Candidate := ExpandConstant('{autopf}\Image-Line\FL Studio 2024');
+  if IsFLFolder(Candidate) then begin Result := Candidate; Exit; end;
+
+  Candidate := ExpandConstant('{autopf}\Image-Line\FL Studio 21');
+  if IsFLFolder(Candidate) then begin Result := Candidate; Exit; end;
+
+  Candidate := ExpandConstant('{autopf}\Image-Line\FL Studio 20');
+  if IsFLFolder(Candidate) then begin Result := Candidate; Exit; end;
+
+  Candidate := ExpandConstant('{pf32}\Image-Line\FL Studio 2026');
+  if IsFLFolder(Candidate) then begin Result := Candidate; Exit; end;
+
+  Candidate := ExpandConstant('{pf32}\Image-Line\FL Studio 2025');
+  if IsFLFolder(Candidate) then begin Result := Candidate; Exit; end;
+
+  Candidate := ExpandConstant('{pf32}\Image-Line\FL Studio 2024');
+  if IsFLFolder(Candidate) then begin Result := Candidate; Exit; end;
+end;
+
 procedure InitializeWizard;
+var
+  Detected: String;
 begin
   FLPage := CreateInputDirPage(wpSelectDir, 'FL Studio installation',
-    'Select the folder containing FL64.exe.', 'Field Demo installs only the FL Studio native one-instance plugin.', False, '');
+    'Select the folder containing FL64.exe.', 'Field Demo installs only the FL Studio native one-instance plugin. An installed FL Studio version is selected automatically when found.', False, '');
   FLPage.Add('FL Studio folder:');
-  FLPage.Values[0] := ExpandConstant('{autopf}\Image-Line\FL Studio 2026');
+  Detected := DetectFLStudio;
+  if Detected <> '' then
+    FLPage.Values[0] := Detected
+  else
+    FLPage.Values[0] := ExpandConstant('{autopf}\Image-Line');
 end;
+
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
   if CurPageID = FLPage.ID then
-    if not FileExists(FLPage.Values[0] + '\FL64.exe') then begin
+    if not IsFLFolder(FLPage.Values[0]) then begin
       MsgBox('Select the existing FL Studio folder containing FL64.exe.', mbError, MB_OK);
       Result := False;
     end;
 end;
+
 function FLPath(Param: String): String;
 begin
   Result := FLPage.Values[0];
