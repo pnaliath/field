@@ -1,0 +1,23 @@
+FIELD 1.0 BETA DEMO
+PROPRIETARY COMMERCIAL SOFTWARE — EVALUATION ONLY
+
+This package is a pre-release demo of Field.
+
+You may install and use it only for personal or internal evaluation and testing.
+
+YOU MAY NOT:
+- sell or resell it;
+- share it with another person;
+- upload or publish it anywhere;
+- redistribute or mirror the installer, ZIP, plugins, or documentation;
+- bundle or repackage it with another product;
+- sublicense, rent, lease, lend, or commercially exploit it;
+- distribute modified or derivative versions.
+
+No ownership, resale, redistribution, publishing, sublicensing, or transfer rights are granted.
+
+Third-party license files included in the package apply only to their corresponding third-party components. They do NOT grant permission to distribute, sell, repackage, or sublicense Field.
+
+By continuing with installation or use, you agree to the Field Commercial Demo / Evaluation License supplied with this package.
+
+Copyright (c) 2026 Field. All rights reserved.
