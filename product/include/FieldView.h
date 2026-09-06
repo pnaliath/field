@@ -21,8 +21,9 @@ public:
     std::wstring mode=L"FL Native";
 private:
     Engine& engine;HINSTANCE instance;HWND hwnd=nullptr;ULONG_PTR gdiplus=0;
+    HWND hostParent=nullptr,savedParent=nullptr;LONG_PTR savedStyle=0;
     Preferences prefs;Snapshot frame;
-    bool dragging=false,moved=false,diagnostics=false;
+    bool dragging=false,moved=false,diagnostics=false,fullscreen=false;
     POINT last{};int scroll=0;std::vector<int> rows;
     FILE* log=nullptr;double lastPaint=0,lastLog=0,paintMs=0,fps=0;
     std::unique_ptr<Gdiplus::Bitmap> backBuffer;int backW=0,backH=0;
@@ -33,7 +34,7 @@ private:
     std::vector<Gdiplus::RectF> labelRects;
     static LRESULT CALLBACK proc(HWND,UINT,WPARAM,LPARAM);
     LRESULT message(UINT,WPARAM,LPARAM);
-    void paint();void click(int,int);void menu(int,int,int);void exportLog();void writeLog();
+    void paint();void click(int,int);void menu(int,int,int);void exportLog();void writeLog();void toggleFullscreen();
     Gdiplus::PointF project(float x,float y,float z,const RECT& room) const;
     void body(Gdiplus::Graphics&,const RouteView&,int,const RECT&,float,float,float,float,const std::array<float,Bands>&,int);
     void savePrefs(){engine.setPreferences(prefs);if(onChange)onChange();}
