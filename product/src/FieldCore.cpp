@@ -59,7 +59,7 @@ void Engine::setPreferences(const Preferences& p){std::lock_guard<std::mutex> lo
     prefs.animation=std::clamp(std::isfinite(p.animation)?p.animation:1.f,0.f,1.f);
 }
 void Engine::tick(){
-    double start=nowMs();if(start-lastTick<12)return;lastTick=start;
+    double start=nowMs();if(start-lastTick<8)return;lastTick=start;
     std::lock_guard<std::mutex> lock(mutex);
     bool flush=flushRequested.exchange(false);view.active=0;view.queueDepth=0;view.dropped=0;
     const double sr=sampleRate.load();
@@ -78,7 +78,7 @@ void Engine::tick(){
         v.present=signal;v.lastSignalMs=lastSignal;
         l.envelope[l.envelopePos]=signal?std::pow(10.f,v.rms/20.f):0;l.envelopePos=(l.envelopePos+1)%256;
         l.envelopeCount=std::min(256,l.envelopeCount+1);
-        if(signal){++view.active;if(!l.signalStart)l.signalStart=start;
+        if(signal){++view.active;if(!l.signalStart){l.signalStart=start;v.stablePan=a.pan.load();}
             float target=std::max(.15f,unit((v.peak+100)/80));v.presence=std::max(v.presence,target);
             v.pan=a.pan.load();v.stablePan+=(v.pan-v.stablePan)*float(1-std::exp(-dt/2500.));
             v.width+=(a.width.load()-v.width)*float(l.frames<4?1:1-std::exp(-dt/1800.));
@@ -109,12 +109,16 @@ void Engine::tick(){
         }
         int n=a.ring.popLatest(samples.data(),FFTSize);
         for(int i=0;i<n;++i){l.l[l.pos]=samples[i].l;l.r[l.pos]=samples[i].r;l.pos=(l.pos+1)&(FFTSize-1);l.count=std::min(FFTSize,l.count+1);}
-        double cadence=prefs.analysis==0?32:prefs.analysis==2?12:20;
+        double cadence=prefs.analysis==0?24:prefs.analysis==2?10:16;
         if(n&&l.count>=std::min(512,int(sr*.012))&&start-l.lastAnalysis>=cadence){analyse(r,start);l.lastAnalysis=start;}
         view.queueDepth+=a.ring.write.load()-a.ring.read.load();view.dropped+=a.ring.dropped.load();
-        if(v.kind==Kind::Unknown&&v.ready)v.kind=Kind::Source;
     }
-    relationships();view.timeMs=start;view.analysisMs=nowMs()-start;
+    relationships();
+    // Keep new routes untyped long enough for FX relationship analysis. Anything
+    // still unmatched becomes a normal source; a later strong relationship may
+    // upgrade an automatically-classified Source to Reverb or Delay.
+    for(int r=0;r<Routes;++r){auto& v=view.routes[r];if(v.kind==Kind::Unknown&&v.ready&&learned[r].envelopeCount>=120&&v.fxSource<0)v.kind=Kind::Source;}
+    view.timeMs=start;view.analysisMs=nowMs()-start;
 }
 void Engine::analyse(int route,double now){
     auto& l=learned[route];auto& v=view.routes[route];
@@ -149,6 +153,12 @@ void Engine::analyse(int route,double now){
     // Remove isolated specks and join only short interior gaps.
     for(int b=1;b<Bands-1;++b)if(shape[b]>0&&shape[b-1]==0&&shape[b+1]==0)shape[b]=0;
     for(int b=1;b<Bands-1;++b)if(shape[b]==0&&shape[b-1]>.12f&&shape[b+1]>.12f)shape[b]=(shape[b-1]+shape[b+1])*.5f;
+    // Trim weak edge tails so room height reflects meaningful identity rather
+    // than tiny broadband leakage at 28 Hz or 18 kHz.
+    float shapePeak=*std::max_element(shape.begin(),shape.end());
+    float edgeGate=std::max(.14f,shapePeak*.22f);int lo=0,hi=Bands-1;
+    while(lo<Bands&&shape[lo]<edgeGate)++lo;while(hi>=0&&shape[hi]<edgeGate)--hi;
+    if(lo<hi){for(int b=0;b<lo;++b)shape[b]=0;for(int b=hi+1;b<Bands;++b)shape[b]=0;}
     difference/=Bands;
     if(l.restored){if(difference>.20f)++l.changedFrames;else l.changedFrames=0;
         if(l.changedFrames>12){v.ready=false;l.restored=false;l.historyCount=0;l.frames=1;l.changedFrames=0;}}
@@ -190,7 +200,7 @@ void Engine::relationships(){
                 if(c>best){best=c;match=s;bestLag=lag;}}
         }
         if(match>=0){v.fxSource=match;v.fxConfidence=best;
-            if(v.kind==Kind::Unknown)v.kind=bestLag>=8?Kind::Delay:Kind::Reverb;}
+            if(v.kind==Kind::Unknown||v.kind==Kind::Source)v.kind=bestLag>=8?Kind::Delay:Kind::Reverb;}
         else{v.fxConfidence*=.94f;if(v.fxConfidence<.8f)v.fxSource=-1;}
     }
     for(auto& v:view.routes){v.reverb=0;v.delay=0;}
