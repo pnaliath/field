@@ -1,10 +1,18 @@
 #include "fp_cplug.h"
 #include "FieldView.h"
+#include <cctype>
 
 namespace {
 HINSTANCE module=nullptr;
 char name[]="Field 1.0 Beta",shortName[]="Field1Beta";
 TFruityPlugInfo info={CurrentSDKVersion,name,shortName,0,0,0,0,0,{}};
+field::Kind inferredKind(const std::string& title){
+    std::string s;for(unsigned char c:title)if(!std::isspace(c)||!s.empty())s.push_back(char(std::toupper(c)));
+    while(!s.empty()&&std::isspace(static_cast<unsigned char>(s.back())))s.pop_back();
+    if(s=="REV"||s=="REVERB"||s=="FX REV"||s=="FX REVERB"||s.find("REVERB")!=std::string::npos)return field::Kind::Reverb;
+    if(s=="DEL"||s=="DELAY"||s=="ECHO"||s=="FX DEL"||s=="FX DELAY"||s.find("DELAY")!=std::string::npos)return field::Kind::Delay;
+    return field::Kind::Unknown;
+}
 class Native final:public TCPPFruityPlug {
     std::unique_ptr<field::Engine> engine;
     std::unique_ptr<field::View> view;
@@ -19,7 +27,7 @@ class Native final:public TCPPFruityPlug {
             const char* n=valid?(nc.VisName[0]?nc.VisName:nc.Name):nullptr;
             std::string title;if(n){size_t len=0;while(len<sizeof(nc.Name)&&n[len])++len;title.assign(n,len);}
             if(title.empty())title="Route "+std::to_string(i+1);
-            engine->setRoute(i,id,title);routeIds[i]=id;
+            engine->setRoute(i,id,title,inferredKind(title));routeIds[i]=id;
         }
         for(int i=count;i<field::Routes;++i)if(routeIds[i]){engine->removeRoute(i);routeIds[i]=0;}
         routeCount.store(count,std::memory_order_release);
