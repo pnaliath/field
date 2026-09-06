@@ -29,6 +29,7 @@ bool auxiliaryFx(const RouteView& v){
     auto n=normalizedName(v);return n=="REV"||n=="REVERB"||n=="DEL"||n=="DELAY"||n=="ECHO"||n=="EQ"||n=="EQUALIZER"||n=="FX REV"||n=="FX REVERB"||n=="FX DEL"||n=="FX DELAY"||n=="FX EQ";
 }
 }
+
 View::~View(){if(log)fclose(log);backBuffer.reset();if(hwnd)DestroyWindow(hwnd);if(gdiplus)GdiplusShutdown(gdiplus);}
 bool View::attach(HWND parent){
     GdiplusStartupInput input;if(GdiplusStartup(&gdiplus,&input,nullptr)!=Ok)return false;
@@ -114,34 +115,66 @@ PointF View::project(float x,float y,float z,const RECT& room) const {
     float scale=std::min(float(room.right-room.left)*.39f,float(room.bottom-room.top)*.48f)*prefs.zoom/(1.45f+.2f*depth);
     return PointF((room.left+room.right)*.5f+xx*scale,(room.top+room.bottom)*.5f-yy*scale);
 }
+
 void View::body(Graphics& g,const RouteView& v,int index,const RECT& room,float pan,float z,float width,float presence,const std::array<float,Bands>& shape,int voices){
-    if(presence<=.01f)return;float base=.06f+.27f*width;if(voices==2)base=.12f;
-    float low=0,high=0,dominant=0,maxShape=0;int stride=prefs.detail==0?8:prefs.detail==2?3:6;
-    if(frame.active>8&&index!=prefs.selected)stride=std::max(stride,8);bool drawn=false;
-    for(int first=0;first<Bands;){while(first<Bands&&shape[first]<=.12f)++first;if(first>=Bands)break;
+    if(presence<=.01f)return;
+    float crestDb=(v.peak>-150&&v.rms>-150)?std::clamp(v.peak-v.rms,0.f,30.f):0.f;
+    if(!v.sustained&&v.eventMs>0)crestDb=std::max(crestDb,10.f);
+    float dynamic01=unit((crestDb-2.f)/16.f);
+    float depthHalf=.025f+.105f*dynamic01;
+    float low=0,high=0,dominant=0,maxShape=0;int stride=prefs.detail==0?9:prefs.detail==2?4:7;
+    if(frame.active>8&&index!=prefs.selected)stride=std::max(stride,9);bool drawn=false;
+
+    for(int first=0;first<Bands;){
+        while(first<Bands&&shape[first]<=.12f)++first;if(first>=Bands)break;
         int end=first;while(end+1<Bands&&shape[end+1]>.12f)++end;if(end==first){first=end+1;continue;}
         for(int b=first;b<=end;++b){if(!low)low=hz(b);high=hz(b);if(shape[b]>maxShape){maxShape=shape[b];dominant=hz(b);}}
-        std::vector<PointF> contour;contour.reserve(size_t(end-first+1)*2);
-        auto radius=[&](int b){float u=-1+2.f*(b-first)/std::max(1,end-first);return base*std::pow(shape[b],.55f)*std::sqrt(std::max(.06f,1-.94f*u*u))*(1+v.eq[b]*.012f);};
-        for(int b=first;b<=end;++b)contour.push_back(project(pan-radius(b),float(b)/75,z,room));
-        for(int b=end;b>=first;--b)contour.push_back(project(pan+radius(b),float(b)/75,z,room));
-        SolidBrush fill(color(v,int(presence*18)));Pen outline(color(v,int(presence*(index==prefs.selected?240:150))),index==prefs.selected?1.7f:1.f);
-        g.FillPolygon(&fill,contour.data(),int(contour.size()));g.DrawPolygon(&outline,contour.data(),int(contour.size()));
-        int pointsN=(index==prefs.selected&&prefs.detail==2)?25:17;
-        for(int b=first;b<=end;b+=stride){std::array<PointF,25> points;float radiusX=radius(b);
-            for(int k=0;k<pointsN;++k){float angle=k*6.2831853f/(pointsN-1);points[k]=project(pan+radiusX*std::cos(angle),float(b)/75,z+radiusX*.48f*std::sin(angle),room);}
-            Pen ring(color(v,int(presence*95)),.8f);g.DrawLines(&ring,points.data(),pointsN);
-            if(prefs.fx&&v.reverb>.08f){for(int k=0;k<pointsN;++k){float angle=k*6.2831853f/(pointsN-1);points[k]=project(pan+radiusX*(1+v.reverb*.65f)*std::cos(angle),float(b)/75,z+.12f*v.reverb+radiusX*.7f*std::sin(angle),room);}
-                Pen aura(color(v,int(presence*v.reverb*32)),4);g.DrawLines(&aura,points.data(),pointsN);}}
-        if(prefs.fx&&v.delay>.1f){for(int echo=1;echo<=3;++echo){auto ghost=contour;for(auto& p:ghost){p.X+=echo*7;p.Y-=echo*4;}
-            Pen pen(color(v,int(presence*v.delay*65/(echo+1))),.8f);g.DrawPolygon(&pen,ghost.data(),int(ghost.size()));}}
-        drawn=true;first=end+1;}
+
+        auto radiusX=[&](int b){
+            float gain=std::pow(unit(shape[b]),.72f);
+            float stereoScale=.90f+.10f*width;
+            float voiceScale=voices==2?.78f:1.f;
+            return voiceScale*stereoScale*(.025f+.31f*gain)*(1+v.eq[b]*.010f);
+        };
+        auto radiusZ=[&](int b){
+            float gain=std::pow(unit(shape[b]),.42f);
+            float rz=depthHalf*(.48f+.52f*gain);
+            return std::min(rz,std::max(.012f,std::min(z-.055f,.945f-z)));
+        };
+
+        std::vector<PointF> front,back;front.reserve(size_t(end-first+1)*2);back.reserve(size_t(end-first+1)*2);
+        for(int b=first;b<=end;++b){float y=float(b)/75,rx=radiusX(b),rz=radiusZ(b);front.push_back(project(pan-rx,y,z-rz,room));back.push_back(project(pan-rx,y,z+rz,room));}
+        for(int b=end;b>=first;--b){float y=float(b)/75,rx=radiusX(b),rz=radiusZ(b);front.push_back(project(pan+rx,y,z-rz,room));back.push_back(project(pan+rx,y,z+rz,room));}
+
+        SolidBrush rearFill(color(v,int(presence*11)));SolidBrush frontFill(color(v,int(presence*25)));
+        Pen rearEdge(color(v,int(presence*70)),.7f);Pen frontEdge(color(v,int(presence*(index==prefs.selected?235:155))),index==prefs.selected?1.6f:1.f);
+        g.FillPolygon(&rearFill,back.data(),int(back.size()));g.DrawPolygon(&rearEdge,back.data(),int(back.size()));
+
+        Pen depthEdge(color(v,int(presence*72)),.7f);
+        for(int b=first;b<=end;b+=stride){float y=float(b)/75,rx=radiusX(b),rz=radiusZ(b);
+            auto lf=project(pan-rx,y,z-rz,room),lb=project(pan-rx,y,z+rz,room),rf=project(pan+rx,y,z-rz,room),rb=project(pan+rx,y,z+rz,room);
+            g.DrawLine(&depthEdge,lf,lb);g.DrawLine(&depthEdge,rf,rb);
+        }
+
+        g.FillPolygon(&frontFill,front.data(),int(front.size()));g.DrawPolygon(&frontEdge,front.data(),int(front.size()));
+
+        int pointsN=(index==prefs.selected&&prefs.detail==2)?19:13;
+        for(int b=first;b<=end;b+=stride){std::array<PointF,19> points;float rx=radiusX(b),rz=radiusZ(b),y=float(b)/75;
+            for(int k=0;k<pointsN;++k){float angle=k*6.2831853f/(pointsN-1);points[k]=project(pan+rx*std::cos(angle),y,z+rz*std::sin(angle),room);}
+            Pen ring(color(v,int(presence*105)),.8f);g.DrawLines(&ring,points.data(),pointsN);
+            if(prefs.fx&&v.reverb>.08f){for(int k=0;k<pointsN;++k){float angle=k*6.2831853f/(pointsN-1);points[k]=project(pan+rx*(1+v.reverb*.65f)*std::cos(angle),y,z+.12f*v.reverb+rz*(1+v.reverb*.45f)*std::sin(angle),room);}
+                Pen aura(color(v,int(presence*v.reverb*32)),3.5f);g.DrawLines(&aura,points.data(),pointsN);}
+        }
+        if(prefs.fx&&v.delay>.1f){for(int echo=1;echo<=3;++echo){auto ghost=front;for(auto& p:ghost){p.X+=echo*7;p.Y-=echo*4;}Pen pen(color(v,int(presence*v.delay*65/(echo+1))),.8f);g.DrawPolygon(&pen,ghost.data(),int(ghost.size()));}}
+        drawn=true;first=end+1;
+    }
+
     if(!drawn)return;auto& metric=rendered[index];metric={true,pan,width,z,low,high,dominant,presence,-1};
     if(v.onsetMs>0&&visibleOnset[index]!=v.onsetCount){visibleOnset[index]=v.onsetCount;visibleDelay[index]=std::max(0.,nowMs()-v.onsetMs);}metric.delay=visibleDelay[index];
     if((prefs.labels||index==prefs.selected)&&low>0){float y=std::log(std::max(28.f,high)/28.f)/std::log(18000.f/28.f);auto p=project(pan,y,z,room);RectF label(p.X-58,p.Y-23,145,21);bool collision=false;
-        for(const auto& r:labelRects)if(overlap(label,r))collision=true;if(index==prefs.selected||(!collision&&labelRects.size()<12)){SolidBrush bg(Color(215,18,25,31));g.FillRectangle(&bg,label);
-            text(g,wide(v.name),label.X+5,label.Y+2,label.Width-10,20,color(v),12,index==prefs.selected);labelRects.push_back(label);}}
+        for(const auto& r:labelRects)if(overlap(label,r))collision=true;if(index==prefs.selected||(!collision&&labelRects.size()<12)){SolidBrush bg(Color(215,18,25,31));g.FillRectangle(&bg,label);text(g,wide(v.name),label.X+5,label.Y+2,label.Width-10,20,color(v),12,index==prefs.selected);labelRects.push_back(label);}}
 }
+
 void View::paint(){
     double start=nowMs();frame=engine.snapshot();prefs=engine.preferences();for(auto& r:rendered)r=Rendered{};labelRects.clear();
     PAINTSTRUCT ps{};HDC dc=BeginPaint(hwnd,&ps);RECT client;GetClientRect(hwnd,&client);if(client.right<=0||client.bottom<=0){EndPaint(hwnd,&ps);return;}
@@ -164,19 +197,18 @@ void View::paint(){
     if(prefs.grid){Pen grid(Color(255,39,53,64),.8f);float frequencies[]={28,60,120,250,500,1000,2000,4000,8000,18000};
         for(float f:frequencies){float y=std::log(f/28)/std::log(18000.f/28);auto a=project(-1,y,.84f,room),b=project(1,y,.84f,room);g.DrawLine(&grid,a,b);text(g,f>=1000?number(f/1000,0)+L" kHz":number(f,0)+L" Hz",a.X-53,a.Y-8,50,18,Color(255,81,108,125),10);}
         for(float x:{-1.f,0.f,1.f}){g.DrawLine(&grid,project(x,0,.08f,room),project(x,0,.84f,room));auto p=project(x,0,.08f,room);text(g,x<0?L"L":x>0?L"R":L"C",p.X-8,p.Y+9,20,20,Color(255,116,141,151),12);}
-        for(float z:{.08f,.46f,.84f}){g.DrawLine(&grid,project(-1,0,z,room),project(1,0,z,room));auto p=project(1,0,z,room);text(g,z<.2?L"Front":z>.7?L"Back":L"Mid",p.X+9,p.Y-4,45,18,Color(255,92,117,130),10);}}
+        for(float zz:{.08f,.46f,.84f}){g.DrawLine(&grid,project(-1,0,zz,room),project(1,0,zz,room));auto p=project(1,0,zz,room);text(g,zz<.2?L"Front":zz>.7?L"Back":L"Mid",p.X+9,p.Y-4,45,18,Color(255,92,117,130),10);}}
     std::vector<int> order;for(int i=0;i<Routes;++i)if(frame.routes[i].id&&frame.routes[i].visible&&frame.routes[i].provisional&&!auxiliaryFx(frame.routes[i]))order.push_back(i);std::sort(order.begin(),order.end(),[&](int a,int b){return frame.routes[a].z>frame.routes[b].z;});
     if(prefs.selected>=0){auto it=std::find(order.begin(),order.end(),prefs.selected);if(it!=order.end()){order.erase(it);order.insert(order.begin(),prefs.selected);}}
     g.SetClip(Rect(int(room.left),int(room.top-24),int(room.right-room.left),int(room.bottom-room.top+55)));
     for(int i:order){const auto& v=frame.routes[i];if(v.sustained){if(v.voices==2){body(g,v,i,room,v.voicePan[0],v.z,v.width,v.presence,v.shape,2);body(g,v,i,room,v.voicePan[1],v.z,v.width,v.presence,v.shape,2);}else body(g,v,i,room,v.stablePan,v.z,v.width,v.presence,v.shape,1);}
-        else{float age=float(start-v.eventMs),life=v.eventLife;float p=v.eventMs>0?unit(1-std::max(0.f,age-80)/std::max(1.f,life-80)):0;
-            if(p>0){bool hasEvent=false;for(float s:v.eventShape)if(s>.12f){hasEvent=true;break;}body(g,v,i,room,v.eventPan,v.eventZ,v.eventWidth,p,hasEvent?v.eventShape:v.shape,v.voices);}
-            else if(v.present)body(g,v,i,room,v.stablePan,v.z,v.width,v.presence,v.shape,v.voices);}}
+        else{float age=float(start-v.eventMs),life=v.eventLife;float p=v.eventMs>0?unit(1-std::max(0.f,age-80)/std::max(1.f,life-80)):0;if(p>0){bool hasEvent=false;for(float s:v.eventShape)if(s>.12f){hasEvent=true;break;}body(g,v,i,room,v.eventPan,v.eventZ,v.eventWidth,p,hasEvent?v.eventShape:v.shape,v.voices);}else if(v.present)body(g,v,i,room,v.stablePan,v.z,v.width,v.presence,v.shape,v.voices);}}
     g.ResetClip();if(order.empty()){text(g,L"Play your session or show a source.",420,290,620,46,Color(255,207,220,225),28,true);text(g,mode==L"FL Native"?L"Field maps the mixer routes exposed by FL Studio.":L"Insert Field Sender on sources and select the same Link session.",420,340,680,28,Color(255,117,145,159),14);}
     if(prefs.selected>=0&&prefs.selected<Routes&&frame.routes[prefs.selected].id&&!auxiliaryFx(frame.routes[prefs.selected])){auto& v=frame.routes[prefs.selected];float x=float(client.right-295),y=float(client.bottom-255);SolidBrush panel(Color(245,21,31,39));g.FillRectangle(&panel,x,y,268.f,199.f);Pen edge(Color(255,49,67,78));g.DrawRectangle(&edge,x,y,268.f,199.f);
         Pen closePen(Color(255,146,164,173),1.4f);g.DrawLine(&closePen,x+242,y+12,x+255,y+25);g.DrawLine(&closePen,x+255,y+12,x+242,y+25);
-        text(g,wide(v.name),x+16,y+12,214,27,color(v),16,true);text(g,wide(kindName(v.kind))+(v.sustained?L" / Sustained":L" / Transient"),x+16,y+44,236,23,Color(255,139,163,174),12);const auto& m=rendered[prefs.selected];float z=m.drawn?m.z:v.z;
-        text(g,L"Pan "+number(v.stablePan*100,0)+L" (live "+number(v.pan*100,0)+L")   Width "+number(v.width*100,0)+L"%",x+16,y+75,240,22,Color(255,190,208,216),12);text(g,L"Depth "+number(z,2)+L"    Voices "+std::to_wstring(v.voices),x+16,y+100,240,22,Color(255,190,208,216),12);
+        text(g,wide(v.name),x+16,y+12,214,27,color(v),16,true);text(g,wide(kindName(v.kind))+(v.sustained?L" / Sustained":L" / Transient"),x+16,y+44,236,23,Color(255,139,163,174),12);const auto& m=rendered[prefs.selected];float zz=m.drawn?m.z:v.z;
+        float crest=(v.peak>-150&&v.rms>-150)?std::max(0.f,v.peak-v.rms):0.f;
+        text(g,L"Pan "+number(v.stablePan*100,0)+L" (live "+number(v.pan*100,0)+L")   Width "+number(v.width*100,0)+L"%",x+16,y+75,240,22,Color(255,190,208,216),12);text(g,L"Depth "+number(zz,2)+L"    Dynamics "+number(crest,1)+L" dB",x+16,y+100,240,22,Color(255,190,208,216),12);
         text(g,number(v.low,0)+L" Hz - "+number(v.high,0)+L" Hz",x+16,y+125,240,22,Color(255,190,208,216),12);text(g,L"Peak "+number(v.peak)+L" dB   RMS "+number(v.rms)+L" dB",x+16,y+150,240,22,Color(255,139,163,174),11);}
     text(g,L"Drag to orbit    Scroll to zoom    Double-click to reset",280,float(client.bottom-32),540,20,Color(255,96,122,138),11);
     if(diagnostics){text(g,L"Audio "+number(float(engine.callbackMs.load()),3)+L" ms   Analysis "+number(float(frame.analysisMs),2)+L" ms   Paint "+number(float(paintMs),2)+L" ms   "+number(float(fps),0)+L" FPS   Dropped "+std::to_wstring(frame.dropped),270,77,900,22,Color(255,218,177,109),11);}
@@ -184,8 +216,7 @@ void View::paint(){
 }
 void View::exportLog(){if(log){fclose(log);log=nullptr;return;}wchar_t file[MAX_PATH]=L"Field-diagnostics.csv";OPENFILENAMEW ofn{};ofn.lStructSize=sizeof(ofn);ofn.hwndOwner=hwnd;ofn.lpstrFile=file;ofn.nMaxFile=MAX_PATH;
     ofn.lpstrFilter=L"CSV diagnostics\0*.csv\0\0";ofn.lpstrDefExt=L"csv";ofn.Flags=OFN_OVERWRITEPROMPT|OFN_PATHMUSTEXIST;
-    if(GetSaveFileNameW(&ofn)&&_wfopen_s(&log,file,L"wb")==0&&log){setvbuf(log,nullptr,_IOFBF,1<<20);
-        fprintf(log,"timestamp,route,route_name,route_type,peak_db,rms_db,presence,live_pan,stable_pan,render_pan,width,depth,voice_count,profile_ready,display_profile_ready,rendered,low_hz,high_hz,dominant_hz,onset_count,last_onset_ms,onset_to_visible_ms,reverb_amount,delay_amount,fx_confidence,fx_source,camera_yaw,camera_pitch,camera_zoom,audio_callback_ms,analysis_ms,paint_ms,fps,queue_depth,dropped_samples\n");}}
+    if(GetSaveFileNameW(&ofn)&&_wfopen_s(&log,file,L"wb")==0&&log){setvbuf(log,nullptr,_IOFBF,1<<20);fprintf(log,"timestamp,route,route_name,route_type,peak_db,rms_db,presence,live_pan,stable_pan,render_pan,width,depth,voice_count,profile_ready,display_profile_ready,rendered,low_hz,high_hz,dominant_hz,onset_count,last_onset_ms,onset_to_visible_ms,reverb_amount,delay_amount,fx_confidence,fx_source,camera_yaw,camera_pitch,camera_zoom,audio_callback_ms,analysis_ms,paint_ms,fps,queue_depth,dropped_samples\n");}}
 void View::writeLog(){if(!log)return;for(int i=0;i<Routes;++i){const auto& v=frame.routes[i];if(!heard(v))continue;auto& m=rendered[i];std::string name=v.name;size_t pos=0;while((pos=name.find('"',pos))!=std::string::npos){name.insert(pos,1,'"');pos+=2;}
     fprintf(log,"%.3f,%d,\"%s\",%s,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%d,%.2f,%.2f,%.2f,%u,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.2f,%u,%llu\n",
         frame.timeMs,i+1,name.c_str(),kindName(v.kind),v.peak,v.rms,m.presence,v.pan,v.stablePan,m.pan,m.width,m.z,v.voices,int(v.ready),int(v.provisional),int(m.drawn),m.low,m.high,m.dominant,v.onsetCount,v.onsetMs,m.drawn?m.delay:-1.,v.reverb,v.delay,v.fxConfidence,v.fxSource>=0?v.fxSource+1:0,prefs.yaw,prefs.pitch,prefs.zoom,engine.callbackMs.load(),frame.analysisMs,paintMs,fps,frame.queueDepth,(unsigned long long)frame.dropped);}
