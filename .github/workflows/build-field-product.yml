@@ -2,8 +2,8 @@ name: Field 1.0 product candidate
 on:
   workflow_dispatch:
   push:
-    branches: [release/v1.0-product]
-    paths: [product/**, .github/workflows/build-field-product.yml]
+    branches: [release/v1.0-product, fix/beta1-commercial-demo-license]
+    paths: [product/**, LICENSE, .github/workflows/build-field-product.yml]
 permissions:
   contents: read
 jobs:
@@ -30,7 +30,7 @@ jobs:
           if (-not $bundle) { throw 'VST3 bundle missing' }
           Copy-Item $bundle.FullName package -Recurse
           Copy-Item product/docs package -Recurse
-          Copy-Item LICENSE package
+          Copy-Item LICENSE 'package/FIELD-DEMO-LICENSE.txt'
           $sdkLicenses = Get-ChildItem build/product/_deps/vst3sdk-src -File -Filter LICENSE*
           foreach ($license in $sdkLicenses) { Copy-Item $license.FullName ('package/VST3-SDK-' + $license.Name) }
           Copy-Item Field-render-check.png package
@@ -41,15 +41,15 @@ jobs:
             "$hash  $relative"
           })
           $checksums | Set-Content -LiteralPath package/SHA256SUMS.txt -Encoding utf8
-          Compress-Archive -Path package/* -DestinationPath Field-1.0.0-beta.1-Windows-x64.zip
+          Compress-Archive -Path package/* -DestinationPath Field-1.0.0-beta.1-Demo-Windows-x64.zip
       - name: Build installer
         shell: pwsh
         run: '& "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" product/installer/Field.iss'
       - uses: actions/upload-artifact@v4
         with:
-          name: Field-1.0.0-beta.1-Windows-x64
+          name: Field-1.0.0-beta.1-Demo-Windows-x64
           path: |
-            Field-1.0.0-beta.1-Windows-x64.zip
+            Field-1.0.0-beta.1-Demo-Windows-x64.zip
             package/*Setup.exe
             Field-render-check.png
           if-no-files-found: error
