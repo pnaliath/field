@@ -34,7 +34,13 @@ jobs:
           $sdkLicenses = Get-ChildItem build/product/_deps/vst3sdk-src -File -Filter LICENSE*
           foreach ($license in $sdkLicenses) { Copy-Item $license.FullName ('package/VST3-SDK-' + $license.Name) }
           Copy-Item Field-render-check.png package
-          Get-ChildItem package -Recurse -File | Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize | Out-File package/SHA256SUMS.txt
+          $packageRoot = (Resolve-Path package).Path
+          $checksums = @(Get-ChildItem package -Recurse -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | Sort-Object FullName | ForEach-Object {
+            $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $relative = [IO.Path]::GetRelativePath($packageRoot, $_.FullName).Replace('\', '/')
+            "$hash  $relative"
+          })
+          $checksums | Set-Content -LiteralPath package/SHA256SUMS.txt -Encoding utf8
           Compress-Archive -Path package/* -DestinationPath Field-1.0.0-beta.1-Windows-x64.zip
       - name: Build installer
         shell: pwsh
