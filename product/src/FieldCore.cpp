@@ -38,15 +38,15 @@ void Engine::setRoute(int route,uint64_t id,const std::string& name,Kind kind){
         // Preserve per-source state even if a host reorders its route slots.
         int previous=-1;for(int i=0;i<Routes;++i)if(i!=route&&view.routes[i].id==id){previous=i;break;}
         if(previous>=0){std::swap(v,view.routes[previous]);std::swap(learned[route],learned[previous]);
-            std::swap(reset[route],reset[previous]);}
-        else{v=RouteView{};v.id=id;reset[route]=true;}
+            std::swap(reset[route],reset[previous]);std::swap(kindLocked[route],kindLocked[previous]);}
+        else{v=RouteView{};v.id=id;reset[route]=true;kindLocked[route]=false;}
         auto& ring=audio[route]->ring;ring.read.store(ring.write.load(std::memory_order_acquire),std::memory_order_release);}
     size_t n=std::min(name.size(),sizeof(v.name)-1);std::memcpy(v.name,name.data(),n);v.name[n]=0;
-    if(kind!=Kind::Unknown)v.kind=kind;
+    if(kind!=Kind::Unknown){v.kind=kind;kindLocked[route]=true;}
 }
-void Engine::removeRoute(int r){if(r<0||r>=Routes)return;std::lock_guard<std::mutex> lock(mutex);view.routes[r]=RouteView{};reset[r]=true;}
+void Engine::removeRoute(int r){if(r<0||r>=Routes)return;std::lock_guard<std::mutex> lock(mutex);view.routes[r]=RouteView{};reset[r]=true;kindLocked[r]=false;}
 void Engine::setVisible(int r,bool v){if(r<0||r>=Routes)return;std::lock_guard<std::mutex> lock(mutex);view.routes[r].visible=v;}
-void Engine::setKind(int r,Kind v){if(r<0||r>=Routes)return;std::lock_guard<std::mutex> lock(mutex);view.routes[r].kind=v;}
+void Engine::setKind(int r,Kind v){if(r<0||r>=Routes)return;std::lock_guard<std::mutex> lock(mutex);view.routes[r].kind=v;kindLocked[r]=true;}
 void Engine::setColor(int r,uint32_t v){if(r<0||r>=Routes)return;std::lock_guard<std::mutex> lock(mutex);view.routes[r].color=v;}
 void Engine::relearn(int route){std::lock_guard<std::mutex> lock(mutex);for(int r=0;r<Routes;++r)if(route<0||route==r){reset[r]=true;
     auto& ring=audio[r]->ring;ring.read.store(ring.write.load(std::memory_order_acquire),std::memory_order_release);}}
@@ -117,7 +117,7 @@ void Engine::tick(){
     // Keep new routes untyped long enough for FX relationship analysis. Anything
     // still unmatched becomes a normal source; a later strong relationship may
     // upgrade an automatically-classified Source to Reverb or Delay.
-    for(int r=0;r<Routes;++r){auto& v=view.routes[r];if(v.kind==Kind::Unknown&&v.ready&&learned[r].envelopeCount>=120&&v.fxSource<0)v.kind=Kind::Source;}
+    for(int r=0;r<Routes;++r){auto& v=view.routes[r];if(!kindLocked[r]&&v.kind==Kind::Unknown&&v.ready&&learned[r].envelopeCount>=120&&v.fxSource<0)v.kind=Kind::Source;}
     view.timeMs=start;view.analysisMs=nowMs()-start;
 }
 void Engine::analyse(int route,double now){
@@ -200,7 +200,7 @@ void Engine::relationships(){
                 if(c>best){best=c;match=s;bestLag=lag;}}
         }
         if(match>=0){v.fxSource=match;v.fxConfidence=best;
-            if(v.kind==Kind::Unknown||v.kind==Kind::Source)v.kind=bestLag>=8?Kind::Delay:Kind::Reverb;}
+            if(!kindLocked[r]&&(v.kind==Kind::Unknown||v.kind==Kind::Source))v.kind=bestLag>=8?Kind::Delay:Kind::Reverb;}
         else{v.fxConfidence*=.94f;if(v.fxConfidence<.8f)v.fxSource=-1;}
     }
     for(auto& v:view.routes){v.reverb=0;v.delay=0;}
@@ -233,7 +233,7 @@ bool Engine::restore(const void* data,size_t size){
     }
     if(!r.valid||r.pos+4!=size)return false;
     std::lock_guard<std::mutex> lock(mutex);view=*restored;prefs=p;
-    for(int i=0;i<Routes;++i){learned[i]=Learner{};learned[i].restored=view.routes[i].ready;reset[i]=false;}
+    for(int i=0;i<Routes;++i){learned[i]=Learner{};learned[i].restored=view.routes[i].ready;reset[i]=false;kindLocked[i]=view.routes[i].kind!=Kind::Unknown;}
     return true;
 }
 }
