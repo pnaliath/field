@@ -174,6 +174,7 @@ private:
     Snapshot view;
     Preferences prefs;
     std::array<bool,Routes> reset{};
+    std::array<bool,Routes> kindLocked{};
     std::atomic<double> sampleRate{44100};
     std::atomic<bool> running{true},flushRequested{false};
     double lastTick=0;
