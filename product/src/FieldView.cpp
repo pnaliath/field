@@ -3,10 +3,13 @@
 #include <windowsx.h>
 #include <sstream>
 #include <iomanip>
+#include <cctype>
 
 namespace field {
 using namespace Gdiplus;
 namespace {
+constexpr int SidebarWidth=238;
+constexpr int ListTop=136;
 Color color(const RouteView& r,int alpha=255){
     static constexpr uint32_t palette[]={0x46c9bb,0xf3b85f,0x9791fa,0xef879f,0x74b7ed,0xb7d575,0xe99863,0x8bd4da,0xc892d2,0xe5d98c,0x7493e5,0xdd8d73};
     uint32_t c=r.color?r.color:palette[r.id%12];return Color(BYTE(std::clamp(alpha,0,255)),BYTE(c>>16),BYTE(c>>8),BYTE(c));
@@ -16,19 +19,39 @@ std::wstring wide(const char* s){if(!s||!*s)return L"Unnamed source";int n=Multi
 void text(Graphics& g,const std::wstring& s,float x,float y,float w,float h,Color c,float size=12,bool bold=false){
     Font f(L"Segoe UI",size,bold?FontStyleBold:FontStyleRegular,UnitPixel);SolidBrush b(c);StringFormat fmt;
     fmt.SetTrimming(StringTrimmingEllipsisCharacter);fmt.SetFormatFlags(StringFormatFlagsNoWrap);g.DrawString(s.c_str(),-1,&f,RectF(x,y,w,h),&fmt,&b);}
+void button(Graphics& g,const wchar_t* label,float x,float y,float w,float h){SolidBrush fill(Color(255,29,41,49));Pen edge(Color(255,56,74,84));g.FillRectangle(&fill,x,y,w,h);g.DrawRectangle(&edge,x,y,w,h);text(g,label,x+8,y+3,w-16,h-4,Color(255,184,199,204),11,true);}
 std::wstring number(float v,int decimals=1){std::wostringstream s;s<<std::fixed<<std::setprecision(decimals)<<v;return s.str();}
 bool overlap(const RectF& a,const RectF& b){return a.X<b.GetRight()&&a.GetRight()>b.X&&a.Y<b.GetBottom()&&a.GetBottom()>b.Y;}
+bool heard(const RouteView& v){return v.id&&(v.present||v.provisional||v.ready||v.lastSignalMs>0);}
+std::string normalizedName(const RouteView& v){std::string s;for(const unsigned char c:std::string(v.name)){if(std::isspace(c)){if(!s.empty()&&s.back()!=' ')s.push_back(' ');}else s.push_back(char(std::toupper(c)));}while(!s.empty()&&s.back()==' ')s.pop_back();return s;}
+bool auxiliaryFx(const RouteView& v){
+    if(v.kind==Kind::Reverb||v.kind==Kind::Delay)return true;
+    auto n=normalizedName(v);return n=="REV"||n=="REVERB"||n=="DEL"||n=="DELAY"||n=="ECHO"||n=="EQ"||n=="EQUALIZER"||n=="FX REV"||n=="FX REVERB"||n=="FX DEL"||n=="FX DELAY"||n=="FX EQ";
+}
 }
 View::~View(){if(log)fclose(log);backBuffer.reset();if(hwnd)DestroyWindow(hwnd);if(gdiplus)GdiplusShutdown(gdiplus);}
 bool View::attach(HWND parent){
     GdiplusStartupInput input;if(GdiplusStartup(&gdiplus,&input,nullptr)!=Ok)return false;
     WNDCLASSEXW wc{};wc.cbSize=sizeof(wc);wc.style=CS_DBLCLKS;wc.lpfnWndProc=proc;wc.hInstance=instance;
     wc.hCursor=LoadCursor(nullptr,IDC_ARROW);wc.lpszClassName=L"FieldProductionView1";RegisterClassExW(&wc);
-    prefs=engine.preferences();visibleDelay.fill(-1);
+    prefs=engine.preferences();visibleDelay.fill(-1);hostParent=parent;
     hwnd=CreateWindowExW(0,wc.lpszClassName,L"Field",WS_CHILD|WS_VISIBLE|WS_CLIPSIBLINGS,0,0,1200,760,parent,nullptr,instance,this);
     if(hwnd)SetTimer(hwnd,1,16,nullptr);return hwnd!=nullptr;
 }
-void View::resize(int w,int h){if(hwnd)SetWindowPos(hwnd,nullptr,0,0,w,h,SWP_NOZORDER);}
+void View::resize(int w,int h){if(hwnd&&!fullscreen)SetWindowPos(hwnd,nullptr,0,0,w,h,SWP_NOZORDER);}
+void View::toggleFullscreen(){
+    if(!hwnd)return;
+    if(!fullscreen){
+        savedParent=GetParent(hwnd);if(!savedParent)savedParent=hostParent;savedStyle=GetWindowLongPtrW(hwnd,GWL_STYLE);
+        SetWindowLongPtrW(hwnd,GWL_STYLE,(savedStyle&~WS_CHILD)|WS_POPUP|WS_VISIBLE);SetParent(hwnd,nullptr);
+        HMONITOR monitor=MonitorFromWindow(savedParent?savedParent:hwnd,MONITOR_DEFAULTTONEAREST);MONITORINFO mi{};mi.cbSize=sizeof(mi);
+        if(GetMonitorInfoW(monitor,&mi)){fullscreen=true;SetWindowPos(hwnd,HWND_TOP,mi.rcMonitor.left,mi.rcMonitor.top,mi.rcMonitor.right-mi.rcMonitor.left,mi.rcMonitor.bottom-mi.rcMonitor.top,SWP_FRAMECHANGED|SWP_SHOWWINDOW);SetFocus(hwnd);}
+    }else{
+        SetWindowLongPtrW(hwnd,GWL_STYLE,savedStyle);SetParent(hwnd,savedParent?savedParent:hostParent);fullscreen=false;
+        RECT r{};HWND parent=savedParent?savedParent:hostParent;if(parent&&GetClientRect(parent,&r))SetWindowPos(hwnd,nullptr,0,0,r.right-r.left,r.bottom-r.top,SWP_NOZORDER|SWP_FRAMECHANGED|SWP_SHOWWINDOW);
+    }
+    backBuffer.reset();backW=backH=0;InvalidateRect(hwnd,nullptr,FALSE);
+}
 LRESULT CALLBACK View::proc(HWND h,UINT m,WPARAM w,LPARAM l){auto self=reinterpret_cast<View*>(GetWindowLongPtrW(h,GWLP_USERDATA));
     if(m==WM_NCCREATE){self=static_cast<View*>(reinterpret_cast<CREATESTRUCTW*>(l)->lpCreateParams);SetWindowLongPtrW(h,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(self));self->hwnd=h;}
     if(self){try{return self->message(m,w,l);}catch(...){return DefWindowProcW(h,m,w,l);}}return DefWindowProcW(h,m,w,l);
@@ -38,22 +61,26 @@ LRESULT View::message(UINT m,WPARAM w,LPARAM l){
     case WM_TIMER:if(onIdle)onIdle();InvalidateRect(hwnd,nullptr,FALSE);return 0;
     case WM_ERASEBKGND:return 1;
     case WM_PAINT:paint();return 0;
-    case WM_LBUTTONDOWN:last={GET_X_LPARAM(l),GET_Y_LPARAM(l)};moved=false;dragging=last.x>238&&last.y>68;if(dragging)SetCapture(hwnd);return 0;
+    case WM_LBUTTONDOWN:last={GET_X_LPARAM(l),GET_Y_LPARAM(l)};moved=false;dragging=last.x>SidebarWidth&&last.y>68;if(dragging)SetCapture(hwnd);return 0;
     case WM_MOUSEMOVE:if(dragging){int x=GET_X_LPARAM(l),y=GET_Y_LPARAM(l);if(std::abs(x-last.x)+std::abs(y-last.y)>2)moved=true;
         prefs.yaw+=(x-last.x)*.007f;prefs.pitch=std::clamp(prefs.pitch+(y-last.y)*.006f,-1.5f,1.5f);last={x,y};engine.setPreferences(prefs);InvalidateRect(hwnd,nullptr,FALSE);}return 0;
     case WM_LBUTTONUP:if(dragging){dragging=false;ReleaseCapture();savePrefs();}if(!moved)click(GET_X_LPARAM(l),GET_Y_LPARAM(l));return 0;
-    case WM_LBUTTONDBLCLK:if(GET_X_LPARAM(l)>238){prefs.yaw=.38f;prefs.pitch=.2f;prefs.zoom=1;savePrefs();}return 0;
+    case WM_LBUTTONDBLCLK:if(GET_X_LPARAM(l)>SidebarWidth){prefs.yaw=.38f;prefs.pitch=.2f;prefs.zoom=1;savePrefs();}return 0;
     case WM_MOUSEWHEEL:{POINT p{GET_X_LPARAM(l),GET_Y_LPARAM(l)};ScreenToClient(hwnd,&p);int steps=GET_WHEEL_DELTA_WPARAM(w)/WHEEL_DELTA;
-        if(p.x<238)scroll=std::clamp(scroll-steps*3,0,std::max(0,int(rows.size())-8));
+        if(p.x<SidebarWidth)scroll=std::clamp(scroll-steps*3,0,std::max(0,int(rows.size())-8));
         else{prefs.zoom=std::clamp(prefs.zoom*std::pow(1.1f,float(steps)),.4f,3.f);savePrefs();}InvalidateRect(hwnd,nullptr,FALSE);return 0;}
-    case WM_RBUTTONUP:if(GET_X_LPARAM(l)<238)menu(4,GET_X_LPARAM(l),GET_Y_LPARAM(l));return 0;
-    case WM_KEYDOWN:if(w=='F'&&prefs.selected>=0){prefs.yaw=0;prefs.pitch=0;prefs.zoom=1.3f;savePrefs();}return 0;
+    case WM_RBUTTONUP:if(GET_X_LPARAM(l)<SidebarWidth)menu(4,GET_X_LPARAM(l),GET_Y_LPARAM(l));return 0;
+    case WM_KEYDOWN:if(w==VK_ESCAPE&&fullscreen){toggleFullscreen();return 0;}if(w=='F'&&prefs.selected>=0){prefs.yaw=0;prefs.pitch=0;prefs.zoom=1.3f;savePrefs();}return 0;
     case WM_DESTROY:KillTimer(hwnd,1);hwnd=nullptr;return 0;
     default:return DefWindowProcW(hwnd,m,w,l);}
 }
 void View::click(int x,int y){
+    RECT client{};GetClientRect(hwnd,&client);
+    if(y<62&&x>=client.right-112){toggleFullscreen();return;}
+    if(prefs.selected>=0&&prefs.selected<Routes&&frame.routes[prefs.selected].id&&!auxiliaryFx(frame.routes[prefs.selected])){float px=float(client.right-295),py=float(client.bottom-255);if(x>=px+238&&x<=px+260&&y>=py+8&&y<=py+30){prefs.selected=-1;savePrefs();InvalidateRect(hwnd,nullptr,FALSE);return;}}
     if(y<66){if(x>=250&&x<335)menu(0,x,60);else if(x<430&&x>=335)menu(1,x,60);else if(x<535&&x>=430)menu(2,x,60);else if(x>=535&&x<645)menu(3,x,60);return;}
-    if(x<238&&y>=112){int row=(y-112)/34+scroll;if(row>=0&&row<int(rows.size())){int r=rows[row];
+    if(x<SidebarWidth&&y>=102&&y<126){bool show=x<118;for(int r:rows)engine.setVisible(r,show);if(onChange)onChange();InvalidateRect(hwnd,nullptr,FALSE);return;}
+    if(x<SidebarWidth&&y>=ListTop){int row=(y-ListTop)/34+scroll;if(row>=0&&row<int(rows.size())){int r=rows[row];
         if(x<42)engine.setVisible(r,!frame.routes[r].visible);else{prefs.selected=r;savePrefs();}if(onChange)onChange();}return;}
 }
 void View::menu(int which,int x,int y){
@@ -65,7 +92,7 @@ void View::menu(int which,int x,int y){
         add(13,L"Detail: Low",prefs.detail==0);add(14,L"Detail: Medium",prefs.detail==1);add(15,L"Detail: High",prefs.detail==2);
         add(16,L"Analysis: Fast",prefs.analysis==0);add(17,L"Analysis: Balanced",prefs.analysis==1);add(18,L"Analysis: Precise",prefs.analysis==2);
         add(19,L"Developer diagnostics",diagnostics);add(20,log?L"Stop CSV recording":L"Record diagnostics CSV");}
-    if(which==4){int row=(y-112)/34+scroll;if(row<0||row>=int(rows.size())){DestroyMenu(h);return;}prefs.selected=rows[row];
+    if(which==4){int row=(y-ListTop)/34+scroll;if(row<0||row>=int(rows.size())){DestroyMenu(h);return;}prefs.selected=rows[row];
         for(int k=0;k<=5;++k)add(UINT(30+k),wide(kindName(Kind(k))).c_str(),frame.routes[prefs.selected].kind==Kind(k));add(40,L"Source colour...");}
     POINT p{x,y};ClientToScreen(hwnd,&p);UINT id=TrackPopupMenu(h,TPM_RETURNCMD|TPM_NONOTIFY,p.x,p.y,0,hwnd,nullptr);DestroyMenu(h);
     switch(id){case 1:case 5:prefs.yaw=.38f;prefs.pitch=.2f;prefs.zoom=1;break;
@@ -120,14 +147,16 @@ void View::paint(){
     PAINTSTRUCT ps{};HDC dc=BeginPaint(hwnd,&ps);RECT client;GetClientRect(hwnd,&client);if(client.right<=0||client.bottom<=0){EndPaint(hwnd,&ps);return;}
     if(!backBuffer||backW!=client.right||backH!=client.bottom){backW=client.right;backH=client.bottom;backBuffer=std::make_unique<Bitmap>(backW,backH,PixelFormat32bppPARGB);}
     Graphics g(backBuffer.get());g.SetSmoothingMode(SmoothingModeAntiAlias);g.SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
-    g.Clear(Color(255,13,19,24));SolidBrush side(Color(255,19,27,33));g.FillRectangle(&side,0,0,238,client.bottom);
-    Pen separator(Color(255,40,53,62));g.DrawLine(&separator,238,0,238,client.bottom);g.DrawLine(&separator,0,66,client.right,66);
+    g.Clear(Color(255,13,19,24));SolidBrush side(Color(255,19,27,33));g.FillRectangle(&side,0,0,SidebarWidth,client.bottom);
+    Pen separator(Color(255,40,53,62));g.DrawLine(&separator,SidebarWidth,0,SidebarWidth,client.bottom);g.DrawLine(&separator,0,66,client.right,66);
     text(g,L"FIELD",24,17,130,30,Color(255,226,235,238),24,true);text(g,wide(Version),114,26,120,20,Color(255,122,143,153),11);
     text(g,L"View",265,25,65,25,Color(255,184,199,204),13);text(g,L"Reset",350,25,70,25,Color(255,184,199,204),13);text(g,L"Learn",445,25,70,25,Color(255,184,199,204),13);text(g,L"Settings",550,25,85,25,Color(255,184,199,204),13);
-    text(g,mode+L"  /  Local analysis",float(client.right-265),26,240,20,Color(255,104,151,144),12);text(g,L"SOURCES",22,84,150,22,Color(255,112,133,144),11,true);
-    rows.clear();for(int r=0;r<Routes;++r){const auto& v=frame.routes[r];if(v.id&&(v.present||v.provisional||v.ready||v.lastSignalMs>0))rows.push_back(r);}text(g,std::to_wstring(rows.size()),195,84,30,22,Color(255,112,133,144),11);
-    int maxRows=std::max(0,(int(client.bottom)-160)/34);scroll=std::clamp(scroll,0,std::max(0,int(rows.size())-maxRows));
-    for(int row=scroll;row<int(rows.size())&&row<scroll+maxRows;++row){int r=rows[row];const auto& v=frame.routes[r];float y=112.f+(row-scroll)*34;
+    float fsX=float(client.right-106);button(g,fullscreen?L"Restore":L"Full screen",fsX,19,92,28);text(g,mode+L"  /  Local analysis",std::max(655.f,fsX-270),26,252,20,Color(255,104,151,144),12);
+    text(g,L"SOURCES",22,80,150,22,Color(255,112,133,144),11,true);
+    rows.clear();for(int r=0;r<Routes;++r){const auto& v=frame.routes[r];if(heard(v)&&!auxiliaryFx(v))rows.push_back(r);}text(g,std::to_wstring(rows.size()),195,80,30,22,Color(255,112,133,144),11);
+    button(g,L"Show All",18,102,92,23);button(g,L"Hide All",118,102,102,23);
+    int maxRows=std::max(0,(int(client.bottom)-ListTop-48)/34);scroll=std::clamp(scroll,0,std::max(0,int(rows.size())-maxRows));
+    for(int row=scroll;row<int(rows.size())&&row<scroll+maxRows;++row){int r=rows[row];const auto& v=frame.routes[r];float y=float(ListTop)+(row-scroll)*34;
         if(r==prefs.selected){SolidBrush selected(Color(255,32,46,53));g.FillRectangle(&selected,8.f,y-2,222.f,33.f);}Pen box(v.visible?color(v):Color(255,69,83,91));g.DrawRectangle(&box,22.f,y+7,11.f,11.f);
         if(v.visible){SolidBrush dot(color(v));g.FillRectangle(&dot,25.f,y+10,5.f,5.f);}text(g,wide(v.name),44,y,155,20,v.visible?Color(255,205,216,220):Color(255,98,116,126),12,r==prefs.selected);
         text(g,wide(kindName(v.kind)),44,y+17,120,16,Color(255,103,126,136),10);SolidBrush activity(v.present?color(v):Color(255,41,55,63));g.FillEllipse(&activity,213.f,y+10,5.f,5.f);}
@@ -136,16 +165,17 @@ void View::paint(){
         for(float f:frequencies){float y=std::log(f/28)/std::log(18000.f/28);auto a=project(-1,y,.84f,room),b=project(1,y,.84f,room);g.DrawLine(&grid,a,b);text(g,f>=1000?number(f/1000,0)+L" kHz":number(f,0)+L" Hz",a.X-53,a.Y-8,50,18,Color(255,81,108,125),10);}
         for(float x:{-1.f,0.f,1.f}){g.DrawLine(&grid,project(x,0,.08f,room),project(x,0,.84f,room));auto p=project(x,0,.08f,room);text(g,x<0?L"L":x>0?L"R":L"C",p.X-8,p.Y+9,20,20,Color(255,116,141,151),12);}
         for(float z:{.08f,.46f,.84f}){g.DrawLine(&grid,project(-1,0,z,room),project(1,0,z,room));auto p=project(1,0,z,room);text(g,z<.2?L"Front":z>.7?L"Back":L"Mid",p.X+9,p.Y-4,45,18,Color(255,92,117,130),10);}}
-    std::vector<int> order;for(int i=0;i<Routes;++i)if(frame.routes[i].id&&frame.routes[i].visible&&frame.routes[i].provisional)order.push_back(i);std::sort(order.begin(),order.end(),[&](int a,int b){return frame.routes[a].z>frame.routes[b].z;});
+    std::vector<int> order;for(int i=0;i<Routes;++i)if(frame.routes[i].id&&frame.routes[i].visible&&frame.routes[i].provisional&&!auxiliaryFx(frame.routes[i]))order.push_back(i);std::sort(order.begin(),order.end(),[&](int a,int b){return frame.routes[a].z>frame.routes[b].z;});
     if(prefs.selected>=0){auto it=std::find(order.begin(),order.end(),prefs.selected);if(it!=order.end()){order.erase(it);order.insert(order.begin(),prefs.selected);}}
     g.SetClip(Rect(int(room.left),int(room.top-24),int(room.right-room.left),int(room.bottom-room.top+55)));
     for(int i:order){const auto& v=frame.routes[i];if(v.sustained){if(v.voices==2){body(g,v,i,room,v.voicePan[0],v.z,v.width,v.presence,v.shape,2);body(g,v,i,room,v.voicePan[1],v.z,v.width,v.presence,v.shape,2);}else body(g,v,i,room,v.stablePan,v.z,v.width,v.presence,v.shape,1);}
         else{float age=float(start-v.eventMs),life=v.eventLife;float p=v.eventMs>0?unit(1-std::max(0.f,age-80)/std::max(1.f,life-80)):0;
             if(p>0){bool hasEvent=false;for(float s:v.eventShape)if(s>.12f){hasEvent=true;break;}body(g,v,i,room,v.eventPan,v.eventZ,v.eventWidth,p,hasEvent?v.eventShape:v.shape,v.voices);}
             else if(v.present)body(g,v,i,room,v.stablePan,v.z,v.width,v.presence,v.shape,v.voices);}}
-    g.ResetClip();if(frame.active==0&&order.empty()){text(g,L"Play your session.",420,290,620,46,Color(255,207,220,225),28,true);text(g,mode==L"FL Native"?L"Field maps the mixer routes exposed by FL Studio.":L"Insert Field Sender on sources and select the same Link session.",420,340,680,28,Color(255,117,145,159),14);}
-    if(prefs.selected>=0&&frame.routes[prefs.selected].id){auto& v=frame.routes[prefs.selected];float x=float(client.right-295),y=float(client.bottom-255);SolidBrush panel(Color(245,21,31,39));g.FillRectangle(&panel,x,y,268.f,199.f);Pen edge(Color(255,49,67,78));g.DrawRectangle(&edge,x,y,268.f,199.f);
-        text(g,wide(v.name),x+16,y+12,236,27,color(v),16,true);text(g,wide(kindName(v.kind))+(v.sustained?L" / Sustained":L" / Transient"),x+16,y+44,236,23,Color(255,139,163,174),12);const auto& m=rendered[prefs.selected];float z=m.drawn?m.z:v.z;
+    g.ResetClip();if(order.empty()){text(g,L"Play your session or show a source.",420,290,620,46,Color(255,207,220,225),28,true);text(g,mode==L"FL Native"?L"Field maps the mixer routes exposed by FL Studio.":L"Insert Field Sender on sources and select the same Link session.",420,340,680,28,Color(255,117,145,159),14);}
+    if(prefs.selected>=0&&prefs.selected<Routes&&frame.routes[prefs.selected].id&&!auxiliaryFx(frame.routes[prefs.selected])){auto& v=frame.routes[prefs.selected];float x=float(client.right-295),y=float(client.bottom-255);SolidBrush panel(Color(245,21,31,39));g.FillRectangle(&panel,x,y,268.f,199.f);Pen edge(Color(255,49,67,78));g.DrawRectangle(&edge,x,y,268.f,199.f);
+        Pen closePen(Color(255,146,164,173),1.4f);g.DrawLine(&closePen,x+242,y+12,x+255,y+25);g.DrawLine(&closePen,x+255,y+12,x+242,y+25);
+        text(g,wide(v.name),x+16,y+12,214,27,color(v),16,true);text(g,wide(kindName(v.kind))+(v.sustained?L" / Sustained":L" / Transient"),x+16,y+44,236,23,Color(255,139,163,174),12);const auto& m=rendered[prefs.selected];float z=m.drawn?m.z:v.z;
         text(g,L"Pan "+number(v.stablePan*100,0)+L" (live "+number(v.pan*100,0)+L")   Width "+number(v.width*100,0)+L"%",x+16,y+75,240,22,Color(255,190,208,216),12);text(g,L"Depth "+number(z,2)+L"    Voices "+std::to_wstring(v.voices),x+16,y+100,240,22,Color(255,190,208,216),12);
         text(g,number(v.low,0)+L" Hz - "+number(v.high,0)+L" Hz",x+16,y+125,240,22,Color(255,190,208,216),12);text(g,L"Peak "+number(v.peak)+L" dB   RMS "+number(v.rms)+L" dB",x+16,y+150,240,22,Color(255,139,163,174),11);}
     text(g,L"Drag to orbit    Scroll to zoom    Double-click to reset",280,float(client.bottom-32),540,20,Color(255,96,122,138),11);
@@ -156,7 +186,7 @@ void View::exportLog(){if(log){fclose(log);log=nullptr;return;}wchar_t file[MAX_
     ofn.lpstrFilter=L"CSV diagnostics\0*.csv\0\0";ofn.lpstrDefExt=L"csv";ofn.Flags=OFN_OVERWRITEPROMPT|OFN_PATHMUSTEXIST;
     if(GetSaveFileNameW(&ofn)&&_wfopen_s(&log,file,L"wb")==0&&log){setvbuf(log,nullptr,_IOFBF,1<<20);
         fprintf(log,"timestamp,route,route_name,route_type,peak_db,rms_db,presence,live_pan,stable_pan,render_pan,width,depth,voice_count,profile_ready,display_profile_ready,rendered,low_hz,high_hz,dominant_hz,onset_count,last_onset_ms,onset_to_visible_ms,reverb_amount,delay_amount,fx_confidence,fx_source,camera_yaw,camera_pitch,camera_zoom,audio_callback_ms,analysis_ms,paint_ms,fps,queue_depth,dropped_samples\n");}}
-void View::writeLog(){if(!log)return;for(int i=0;i<Routes;++i){const auto& v=frame.routes[i];if(!v.id||(!(v.present||v.provisional||v.ready||v.lastSignalMs>0)))continue;auto& m=rendered[i];std::string name=v.name;size_t pos=0;while((pos=name.find('"',pos))!=std::string::npos){name.insert(pos,1,'"');pos+=2;}
+void View::writeLog(){if(!log)return;for(int i=0;i<Routes;++i){const auto& v=frame.routes[i];if(!heard(v))continue;auto& m=rendered[i];std::string name=v.name;size_t pos=0;while((pos=name.find('"',pos))!=std::string::npos){name.insert(pos,1,'"');pos+=2;}
     fprintf(log,"%.3f,%d,\"%s\",%s,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%d,%.2f,%.2f,%.2f,%u,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.2f,%u,%llu\n",
         frame.timeMs,i+1,name.c_str(),kindName(v.kind),v.peak,v.rms,m.presence,v.pan,v.stablePan,m.pan,m.width,m.z,v.voices,int(v.ready),int(v.provisional),int(m.drawn),m.low,m.high,m.dominant,v.onsetCount,v.onsetMs,m.drawn?m.delay:-1.,v.reverb,v.delay,v.fxConfidence,v.fxSource>=0?v.fxSource+1:0,prefs.yaw,prefs.pitch,prefs.zoom,engine.callbackMs.load(),frame.analysisMs,paintMs,fps,frame.queueDepth,(unsigned long long)frame.dropped);}
     if(ferror(log)){fclose(log);log=nullptr;}}
