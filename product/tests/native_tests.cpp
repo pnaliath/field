@@ -37,19 +37,19 @@ public:
     void _stdcall AddWave_32FM_32FS_Ramp(void *SourceBuffer, void *DestBuffer, int Length, float LVol, float RVol, float &LastLVol, float &LastRVol) override {}
     void _stdcall AddWave_32FS_32FS_Ramp(void *SourceBuffer, void *DestBuffer, int Length, float LVol, float RVol, float &LastLVol, float &LastRVol) override {}
     bool _stdcall LoadSample(TSampleHandle &Handle, char *FileName, PWaveFormatExtensible NeededFormat, int Flags) override {return {};}
-    void * _stdcall GetSampleData(TSampleHandle Handle, int &Length) override {}
+    void * _stdcall GetSampleData(TSampleHandle Handle, int &Length) override {return nullptr;}
     void _stdcall CloseSample(TSampleHandle Handle) override {}
     int _stdcall GetSongMixingTime() override {return {};}
     double _stdcall GetSongMixingTime_A() override {return {};}
     double _stdcall GetSongPlayingTime() override {return {};}
     void _stdcall OnControllerChanged(TPluginTag Sender, intptr_t Index, intptr_t Value) override {}
-    void * _stdcall GetSendBuffer(intptr_t Num) override {}
+    void * _stdcall GetSendBuffer(intptr_t Num) override {return nullptr;}
     void _stdcall PlugMsg_Delayed(TPluginTag Sender, intptr_t Msg) override {}
     void _stdcall PlugMsg_Kill(TPluginTag Sender, intptr_t MSg) override {}
     void _stdcall GetSampleInfo(TSampleHandle Handle, PSampleInfo Info) override {}
     void _stdcall DistWave_32FM(int DistType, int DistThres, void *SourceBuffer, int Length, float DryVol, float WetVol, float Mul) override {}
-    void * _stdcall GetMixBuffer(int Num) override {}
-    void * _stdcall GetInsBuffer(TPluginTag Sender, int Ofs) override {}
+    void * _stdcall GetMixBuffer(int Num) override {return nullptr;}
+    void * _stdcall GetInsBuffer(TPluginTag Sender, int Ofs) override {return nullptr;}
     BOOL _stdcall PromptEdit(int x, int y, char *SetCaption, char *s, int &c) override {return {};}
     void _stdcall SuspendOutput_Old() override {}
     void _stdcall ResumeOutput_Old() override {}
