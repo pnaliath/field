@@ -34,6 +34,13 @@ jobs:
           ./build/product/Release/FieldRenderCheck.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Prepare installer package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path 'package/Field 1 Beta' -Force | Out-Null
+          Copy-Item 'build/product/Release/Field 1 Beta_x64.dll' 'package/Field 1 Beta/' -Force
+          Set-Content -Path 'package/Field 1 Beta/Plugin.nfo' -Value 'ps_vendorname=Field' -Encoding ascii
+
       - name: Build installer
         shell: pwsh
         run: '& "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" product/installer/Field.iss'
