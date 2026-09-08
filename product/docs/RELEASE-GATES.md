@@ -16,6 +16,7 @@ Ship the existing single-instance FL-native architecture. Per-track Senders and 
 - Stereo width independently changes body geometry.
 - Draggable vertical frequency range, range pan, pointer-centred wheel zoom and reset; version-3 state persistence.
 - UI state is per instance, including sidebar collapse. Versions 1 and 2 remain readable.
+- The native DLL harness exercises the exported factory, actual callback passthrough, variable blocks/rates, offline/flush, route churn, IStream save/restore, corrupt state, editor reopen, multiple instances and destruction while fullscreen. This is a simulated SDK host, not a substitute for FL acceptance.
 - The Windows UI harness exercises actual rendering, source visibility, range controls, state restoration, fullscreen restoration and camera dragging. PNG generation alone is no longer the acceptance criterion.
 
 ## Gates requiring actual host evidence

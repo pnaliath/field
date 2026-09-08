@@ -20,6 +20,7 @@ public:
     bool renderedRoute(int route) const {return route>=0&&route<Routes&&rendered[route].drawn;}
     float renderedRoutePan(int route) const {return rendered[route].pan;}
     double framePaintMs() const {return paintMs;}
+    bool saveImage(const wchar_t* path) const;
     std::function<void()> onIdle,onChange;
     std::wstring mode=L"FL Native";
 private:

@@ -5,7 +5,7 @@
 namespace {
 HINSTANCE module=nullptr;
 char name[]="Field 1",shortName[]="Field1Beta";
-TFruityPlugInfo info={CurrentSDKVersion,name,shortName,0,0,0,0,0,{}};
+TFruityPlugInfo info={CurrentSDKVersion,name,shortName,FPF_Type_Effect|FPF_CantSmartDisable,0,0,0,0,{}};
 field::Kind inferredKind(const std::string& title){
     std::string s;for(unsigned char c:title)if(!std::isspace(c)||!s.empty())s.push_back(char(std::toupper(c)));
     while(!s.empty()&&std::isspace(static_cast<unsigned char>(s.back())))s.pop_back();
@@ -71,4 +71,3 @@ public:
 BOOL WINAPI DllMain(HINSTANCE instance,DWORD reason,LPVOID){if(reason==DLL_PROCESS_ATTACH)module=instance;return TRUE;}
 extern "C" __declspec(dllexport) TFruityPlug* _stdcall CreatePlugInstance(TFruityPlugHost* host,int tag){
     try{return new Native(tag,host);}catch(...){return nullptr;}}
-

@@ -32,6 +32,13 @@ float noise01(uint32_t x){return float(hash32(x)&0xffffu)/65535.f;}
 }
 
 View::~View(){if(log)fclose(log);backBuffer.reset();if(hwnd)DestroyWindow(hwnd);if(gdiplus)GdiplusShutdown(gdiplus);}
+bool View::saveImage(const wchar_t* path) const {
+    if(!backBuffer)return false;UINT count=0,size=0;GetImageEncodersSize(&count,&size);
+    std::vector<uint8_t> storage(size);auto codecs=reinterpret_cast<ImageCodecInfo*>(storage.data());
+    GetImageEncoders(count,size,codecs);
+    for(UINT i=0;i<count;++i)if(wcscmp(codecs[i].MimeType,L"image/png")==0)return backBuffer->Save(path,&codecs[i].Clsid)==Ok;
+    return false;
+}
 bool View::attach(HWND parent){
     GdiplusStartupInput input;if(GdiplusStartup(&gdiplus,&input,nullptr)!=Ok)return false;
     WNDCLASSEXW wc{};wc.cbSize=sizeof(wc);wc.style=CS_DBLCLKS;wc.lpfnWndProc=proc;wc.hInstance=instance;
@@ -295,4 +302,3 @@ void View::writeLog(){if(!log)return;for(int i=0;i<Routes;++i){const auto& v=fra
         frame.timeMs,i+1,name.c_str(),kindName(v.kind),v.peak,v.rms,m.presence,v.pan,v.stablePan,m.pan,m.width,m.z,v.voices,int(v.ready),int(v.provisional),int(m.drawn),m.low,m.high,m.dominant,v.onsetCount,v.onsetMs,m.drawn?m.delay:-1.,v.reverb,v.delay,v.fxConfidence,v.fxSource>=0?v.fxSource+1:0,prefs.yaw,prefs.pitch,prefs.zoom,axisHz(prefs.frequency.low),axisHz(prefs.frequency.high),engine.callbackMs.load(),frame.analysisMs,paintMs,fps,frame.queueDepth,(unsigned long long)frame.dropped);}
     if(ferror(log)){fclose(log);log=nullptr;}}
 }
-

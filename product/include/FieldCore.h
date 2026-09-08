@@ -165,7 +165,7 @@ public:
         if(peak>1.e-6){r.lastSignal.store(t,std::memory_order_relaxed);
             bool resumed=previousBlock==0||t-previousBlock>std::max(80.,duration*2.);
             bool onset=(resumed||rms>std::max(1.e-5f,r.previousRms*1.65f))&&(t-r.lastOnset>=60);
-            if(onset){r.lastOnset=t;r.onsetPan.store(pan);r.onsetLevel.store(db(rms));r.onsetTime.store(t);
+            if(onset){r.lastOnset=t;r.onsetPan.store(pan);r.onsetLevel.store(db(rms));r.onsetWidth.store(width);r.onsetTime.store(t);
                 r.onsetCount.fetch_add(1,std::memory_order_release);}
         }
         r.previousRms=rms+(r.previousRms-rms)*float(std::exp(-duration/10.));
@@ -175,7 +175,7 @@ public:
 private:
     struct Audio {
         SampleRing<16384> ring;
-        std::atomic<float> peak{-180},rms{-180},pan{0},width{0},onsetPan{0},onsetLevel{-180};
+        std::atomic<float> peak{-180},rms{-180},pan{0},width{0},onsetPan{0},onsetLevel{-180},onsetWidth{0};
         std::atomic<double> lastBlock{0},lastSignal{0},onsetTime{0};
         std::atomic<uint32_t> onsetCount{0};
         float previousRms=0;double lastOnset=-1000;

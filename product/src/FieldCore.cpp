@@ -110,7 +110,7 @@ void Engine::tick(){
             v.onsetCount=onset;v.onsetMs=born;l.lastOnset=born;
             v.eventMs=born;v.eventPan=a.onsetPan.load();v.eventZ=levelDepth(a.onsetLevel.load());
             if(!v.provisional)v.z=v.eventZ;
-            v.eventWidth=v.width;v.eventShape=v.shape;v.eventLife=std::clamp(400.f+l.activeDuration,450.f,900.f);
+            v.eventWidth=a.onsetWidth.load();v.eventShape=v.shape;v.eventLife=std::clamp(400.f+l.activeDuration,450.f,900.f);
             l.pans[l.panPos]=v.eventPan;l.panPos=(l.panPos+1)%48;l.panCount=std::min(48,l.panCount+1);
             if(l.panCount>=8&&v.voices==1){float c0=-.5f,c1=.5f;int n0=0,n1=0;
                 for(int iteration=0;iteration<8;++iteration){float s0=0,s1=0;n0=n1=0;

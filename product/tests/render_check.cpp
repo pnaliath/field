@@ -7,13 +7,7 @@ void check(bool x,const char* message){if(!x)throw std::runtime_error(message);}
 void paint(field::View& view){InvalidateRect(view.window(),nullptr,FALSE);UpdateWindow(view.window());}
 void mouse(field::View& view,UINT type,int x,int y){SendMessageW(view.window(),type,type==WM_MOUSEMOVE?MK_LBUTTON:0,MAKELPARAM(x,y));}
 bool capture(field::View& view,const wchar_t* path){
-    RECT rect{};GetClientRect(view.window(),&rect);HDC dc=GetDC(view.window()),memory=CreateCompatibleDC(dc);
-    HBITMAP bitmap=CreateCompatibleBitmap(dc,rect.right,rect.bottom);HGDIOBJ old=SelectObject(memory,bitmap);
-    BitBlt(memory,0,0,rect.right,rect.bottom,dc,0,0,SRCCOPY);Gdiplus::Bitmap image(bitmap,nullptr);
-    UINT count=0,size=0;Gdiplus::GetImageEncodersSize(&count,&size);std::vector<uint8_t> storage(size);
-    auto codecs=reinterpret_cast<Gdiplus::ImageCodecInfo*>(storage.data());Gdiplus::GetImageEncoders(count,size,codecs);
-    bool saved=false;for(UINT i=0;i<count;++i)if(wcscmp(codecs[i].MimeType,L"image/png")==0)saved=image.Save(path,&codecs[i].Clsid)==Gdiplus::Ok;
-    SelectObject(memory,old);DeleteObject(bitmap);DeleteDC(memory);ReleaseDC(view.window(),dc);return saved;
+    return view.saveImage(path);
 }
 int main(){try{
     auto engine=std::make_unique<field::Engine>();engine->setRate(48000);
