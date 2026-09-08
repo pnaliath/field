@@ -1,0 +1,64 @@
+name: Publish Field download
+
+on:
+  push:
+    branches: [deploy/field-download]
+    paths-ignore:
+      - 'deploy-site/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure FL-native product
+        run: cmake -S product -B build/product -G "Visual Studio 17 2022" -A x64 -DFIELD_BUILD_VST3=OFF
+
+      - name: Build plugin and acceptance tests
+        run: cmake --build build/product --config Release --parallel 4
+
+      - name: Core and regression acceptance
+        run: ctest --test-dir build/product -C Release --output-on-failure
+
+      - name: Windows UI acceptance
+        shell: pwsh
+        run: |
+          ./build/product/Release/FieldRenderCheck.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build installer
+        shell: pwsh
+        run: '& "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" product/installer/Field.iss'
+
+      - name: Publish stable download files
+        shell: pwsh
+        run: |
+          $source = 'dist/Field-1.0.0-rc.1-FL-Windows-x64-Setup.exe'
+          if (!(Test-Path $source)) { throw "Installer not found: $source" }
+          New-Item -ItemType Directory -Path deploy-site -Force | Out-Null
+          Copy-Item $source 'deploy-site/Field-Setup.exe' -Force
+          $hash = (Get-FileHash 'deploy-site/Field-Setup.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  Field-Setup.exe" | Set-Content 'deploy-site/SHA256SUMS.txt' -Encoding ascii
+          "Source commit: $env:GITHUB_SHA" | Add-Content 'deploy-site/SHA256SUMS.txt' -Encoding ascii
+
+      - name: Commit published installer
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deploy-site/Field-Setup.exe deploy-site/SHA256SUMS.txt
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host 'Installer is already current.'
+            exit 0
+          }
+          git commit -m "Publish Field installer from $env:GITHUB_SHA"
+          git push origin HEAD:deploy/field-download
