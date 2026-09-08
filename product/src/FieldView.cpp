@@ -27,6 +27,11 @@ void button(Graphics& g,const wchar_t* label,float x,float y,float w,float h){So
 std::wstring number(float v,int decimals=1){std::wostringstream s;s<<std::fixed<<std::setprecision(decimals)<<v;return s.str();}
 bool overlap(const RectF& a,const RectF& b){return a.X<b.GetRight()&&a.GetRight()>b.X&&a.Y<b.GetBottom()&&a.GetBottom()>b.Y;}
 bool heard(const RouteView& v){return v.id&&(v.present||v.provisional||v.ready||v.lastSignalMs>0);}
+std::string normalizedName(const RouteView& v){std::string s;for(const unsigned char c:std::string(v.name)){if(std::isspace(c)){if(!s.empty()&&s.back()!=' ')s.push_back(' ');}else s.push_back(char(std::toupper(c)));}while(!s.empty()&&s.back()==' ')s.pop_back();return s;}
+bool auxiliaryFx(const RouteView& v){
+    if(v.kind==Kind::Reverb||v.kind==Kind::Delay)return true;
+    auto n=normalizedName(v);return n=="REV"||n=="REVERB"||n=="DEL"||n=="DELAY"||n=="ECHO"||n=="FX REV"||n=="FX REVERB"||n=="FX DEL"||n=="FX DELAY"||n=="FX ECHO";
+}
 uint32_t hash32(uint32_t x){x^=x>>16;x*=0x7feb352du;x^=x>>15;x*=0x846ca68bu;x^=x>>16;return x;}
 float noise01(uint32_t x){return float(hash32(x)&0xffffu)/65535.f;}
 }
@@ -234,7 +239,7 @@ void View::paint(){
     }
     text(g,L"View",265,25,65,25,Color(255,184,199,204),13);text(g,L"Reset",350,25,70,25,Color(255,184,199,204),13);text(g,L"Learn",445,25,70,25,Color(255,184,199,204),13);text(g,L"Settings",550,25,85,25,Color(255,184,199,204),13);
     float fsX=float(client.right-106);button(g,fullscreen?L"Restore":L"Full screen",fsX,19,92,28);text(g,mode+L"  /  Local analysis",std::max(655.f,fsX-270),26,252,20,Color(255,104,151,144),12);
-    rows.clear();for(int r=0;r<Routes;++r){const auto& v=frame.routes[r];if(v.id&&(prefs.showAllRoutes||(heard(v)&&!associatedReturn(v,frame))))rows.push_back(r);}
+    rows.clear();for(int r=0;r<Routes;++r){const auto& v=frame.routes[r];if(v.id&&!auxiliaryFx(v)&&(prefs.showAllRoutes||heard(v)))rows.push_back(r);}
     if(!prefs.sidebarCollapsed){
         text(g,std::to_wstring(rows.size()),195,80,30,22,Color(255,112,133,144),11);button(g,L"Show All",18,102,92,23);button(g,L"Hide All",118,102,102,23);
         int maxRows=std::max(0,(int(client.bottom)-ListTop-48)/34);scroll=std::clamp(scroll,0,std::max(0,int(rows.size())-maxRows));
@@ -253,7 +258,7 @@ void View::paint(){
         for(float xx:{-1.f,0.f,1.f}){g.DrawLine(&grid,project(xx,prefs.frequency.low,RoomFront,room),project(xx,prefs.frequency.low,RoomBack,room));auto p=project(xx,prefs.frequency.low,RoomFront,room);text(g,xx<0?L"L":xx>0?L"R":L"C",p.X-8,p.Y+9,20,20,Color(255,116,141,151),12);}
         for(float zz:{RoomFront,.5f,RoomBack}){g.DrawLine(&grid,project(-RoomHalfX,prefs.frequency.low,zz,room),project(RoomHalfX,prefs.frequency.low,zz,room));auto p=project(RoomHalfX,prefs.frequency.low,zz,room);text(g,zz<.2?L"Front":zz>.8?L"Back":L"Mid",p.X+9,p.Y-4,45,18,Color(255,92,117,130),10);}
     }
-    std::vector<int> order;for(int i=0;i<Routes;++i)if(frame.routes[i].id&&frame.routes[i].visible&&frame.routes[i].provisional&&!associatedReturn(frame.routes[i],frame))order.push_back(i);std::sort(order.begin(),order.end(),[&](int a,int b){return frame.routes[a].z>frame.routes[b].z;});
+    std::vector<int> order;for(int i=0;i<Routes;++i)if(frame.routes[i].id&&frame.routes[i].visible&&frame.routes[i].provisional&&!auxiliaryFx(frame.routes[i]))order.push_back(i);std::sort(order.begin(),order.end(),[&](int a,int b){return frame.routes[a].z>frame.routes[b].z;});
     if(prefs.selected>=0){auto it=std::find(order.begin(),order.end(),prefs.selected);if(it!=order.end()){order.erase(it);order.insert(order.begin(),prefs.selected);}}
     g.SetClip(Rect(int(room.left),int(room.top-12),int(room.right-room.left),int(room.bottom-room.top+32)));
     for(int i:order){const auto& v=frame.routes[i];if(v.sustained){if(v.voices==2){body(g,v,i,room,std::clamp(v.voicePan[0]+v.pan-(v.voicePan[0]+v.voicePan[1])*.5f,-1.f,1.f),v.z,v.width,v.presence,v.shape,2);body(g,v,i,room,std::clamp(v.voicePan[1]+v.pan-(v.voicePan[0]+v.voicePan[1])*.5f,-1.f,1.f),v.z,v.width,v.presence,v.shape,2);}else body(g,v,i,room,v.pan,v.z,v.width,v.presence,v.shape,1);}
@@ -262,14 +267,13 @@ void View::paint(){
     if(prefs.fx){
         for(int fxIndex=0;fxIndex<Routes;++fxIndex){const auto& fx=frame.routes[fxIndex];bool isRev=fx.kind==Kind::Reverb,isDelay=fx.kind==Kind::Delay;
             if(!fx.id||!fx.provisional||(!isRev&&!isDelay))continue;
-            if(!fx.visible||fx.fxConfidence<.965f||fx.fxSource<0||fx.fxSource>=Routes)continue;
-            int anchor=fx.fxSource;const auto& a=frame.routes[anchor];
-            if(!a.id||!a.visible||a.kind==Kind::Reverb||a.kind==Kind::Delay)continue;
-            float activity=isRev?a.reverb:a.delay;if(activity<.035f)continue;
-            const auto& sh=a.shape;int lo=Bands,hi=-1;
+            float activity=std::max(fx.presence,std::max(unit((fx.peak+72.f)/52.f),unit((fx.rms+75.f)/55.f)));if(activity<.035f)continue;
+            int anchor=-1;if(fx.fxSource>=0&&fx.fxSource<Routes&&frame.routes[fx.fxSource].id&&!auxiliaryFx(frame.routes[fx.fxSource]))anchor=fx.fxSource;
+            if(anchor<0){float best=-1.f;for(int s:order){const auto& candidate=frame.routes[s];double dot=0,aa=0,bb=0;for(int b=0;b<Bands;++b){double a=candidate.shape[b],c=fx.shape[b];dot+=a*c;aa+=a*a;bb+=c*c;}
+                    float score=float(dot/std::sqrt(aa*bb+1.e-12));score*=.65f+.35f*candidate.presence;if(score>best){best=score;anchor=s;}}}
+            const RouteView& a=anchor>=0?frame.routes[anchor]:fx;const auto& sh=(anchor>=0&&a.provisional)?a.shape:fx.shape;int lo=Bands,hi=-1;
             for(int b=0;b<Bands;++b)if(sh[b]>.12f&&float(b)/75>=prefs.frequency.low&&float(b)/75<=prefs.frequency.high){lo=std::min(lo,b);hi=b;}if(lo>hi)continue;
-            float pan=rendered[anchor].drawn?rendered[anchor].pan:a.pan,z=rendered[anchor].drawn?rendered[anchor].z:a.z;
-            const RouteView& tint=a;uint32_t seed=uint32_t(fx.id)^uint32_t(fxIndex*0x9e3779b9u);
+            float pan=anchor>=0?(rendered[anchor].drawn?rendered[anchor].pan:a.pan):fx.pan,z=anchor>=0?(rendered[anchor].drawn?rendered[anchor].z:a.z):fx.z;const RouteView& tint=anchor>=0?a:fx;uint32_t seed=uint32_t(fx.id)^uint32_t(fxIndex*0x9e3779b9u);
             if(isRev){int count=24+int(28.f*activity);if(frame.active>12)count=std::max(18,count-10);
                 for(int p=0;p<count;++p){uint32_t s=seed+uint32_t(p*0x85ebca6bu);float n0=noise01(s),n1=noise01(s+1),n2=noise01(s+2),n3=noise01(s+3);int b=std::clamp(lo+int(n0*float(hi-lo+1)),lo,hi);if(sh[b]<=.12f)continue;
                     float gain=std::pow(unit(sh[b]),.70f),phase=float(frame.timeMs*.00045)+6.2831853f*n1;float shell=.11f+.23f*gain+activity*(.08f+.13f*n2);
@@ -284,7 +288,7 @@ void View::paint(){
     }
 
     g.ResetClip();frequencyBar(g,client);if(order.empty()){float emptyX=float(room.left)+150.f;text(g,L"Play your session or show a source.",emptyX,290,620,46,Color(255,207,220,225),28,true);text(g,mode==L"FL Native"?L"Field maps the mixer routes exposed by FL Studio.":L"Play audio through the mixer routes exposed by the host.",emptyX,340,680,28,Color(255,117,145,159),14);}
-    if(prefs.selected>=0&&prefs.selected<Routes&&frame.routes[prefs.selected].id){auto& v=frame.routes[prefs.selected];float x=float(client.right-365),y=float(client.bottom-255);SolidBrush panel(Color(245,21,31,39));g.FillRectangle(&panel,x,y,268.f,199.f);Pen edge(Color(255,49,67,78));g.DrawRectangle(&edge,x,y,268.f,199.f);
+    if(prefs.selected>=0&&prefs.selected<Routes&&frame.routes[prefs.selected].id&&!auxiliaryFx(frame.routes[prefs.selected])){auto& v=frame.routes[prefs.selected];float x=float(client.right-365),y=float(client.bottom-255);SolidBrush panel(Color(245,21,31,39));g.FillRectangle(&panel,x,y,268.f,199.f);Pen edge(Color(255,49,67,78));g.DrawRectangle(&edge,x,y,268.f,199.f);
         Pen closePen(Color(255,146,164,173),1.4f);g.DrawLine(&closePen,x+242,y+12,x+255,y+25);g.DrawLine(&closePen,x+255,y+12,x+242,y+25);
         text(g,wide(v.name),x+16,y+12,214,27,color(v),16,true);text(g,wide(kindName(v.kind))+(v.sustained?L" / Sustained":L" / Transient"),x+16,y+44,236,23,Color(255,139,163,174),12);const auto& m=rendered[prefs.selected];float zz=m.drawn?m.z:v.z;
         float crest=(v.peak>-150&&v.rms>-150)?std::max(0.f,v.peak-v.rms):0.f;
