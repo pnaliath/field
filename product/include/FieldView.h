@@ -17,6 +17,9 @@ public:
     bool attach(HWND parent);
     void resize(int w,int h);
     HWND window() const{return hwnd;}
+    bool renderedRoute(int route) const {return route>=0&&route<Routes&&rendered[route].drawn;}
+    float renderedRoutePan(int route) const {return rendered[route].pan;}
+    double framePaintMs() const {return paintMs;}
     std::function<void()> onIdle,onChange;
     std::wstring mode=L"FL Native";
 private:
@@ -24,6 +27,7 @@ private:
     HWND hostParent=nullptr,savedParent=nullptr;LONG_PTR savedStyle=0;
     Preferences prefs;Snapshot frame;
     bool dragging=false,moved=false,diagnostics=false,fullscreen=false;
+    int frequencyDrag=0;float frequencyStart=0;FrequencyRange frequencyBefore;
     POINT last{};int scroll=0;std::vector<int> rows;
     FILE* log=nullptr;double lastPaint=0,lastLog=0,paintMs=0,fps=0;
     std::unique_ptr<Gdiplus::Bitmap> backBuffer;int backW=0,backH=0;
@@ -35,6 +39,11 @@ private:
     static LRESULT CALLBACK proc(HWND,UINT,WPARAM,LPARAM);
     LRESULT message(UINT,WPARAM,LPARAM);
     void paint();void click(int,int);void menu(int,int,int);void exportLog();void writeLog();void toggleFullscreen();
+    int sidebarWidth() const {return prefs.sidebarCollapsed?30:238;}
+    float frequencyAt(int y) const;
+    bool frequencyHit(int x) const;
+    void dragFrequency(int y);
+    void frequencyBar(Gdiplus::Graphics&,const RECT&);
     Gdiplus::PointF project(float x,float y,float z,const RECT& room) const;
     void body(Gdiplus::Graphics&,const RouteView&,int,const RECT&,float,float,float,float,const std::array<float,Bands>&,int);
     void savePrefs(){engine.setPreferences(prefs);if(onChange)onChange();}

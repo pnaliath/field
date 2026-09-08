@@ -1,55 +1,79 @@
-name: Field 1.0 product candidate
+name: Field FL-native release candidate
 on:
   workflow_dispatch:
   push:
-    branches: [release/v1.0-product, fix/beta1-commercial-demo-license, fix/beta1-product-issues]
+    branches: [release/v1.0-product]
     paths: [product/**, LICENSE, .github/workflows/build-field-product.yml]
 permissions:
   contents: read
 jobs:
   windows:
     runs-on: windows-2022
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Configure
-        run: cmake -S product -B build/product -G "Visual Studio 17 2022" -A x64
-      - name: Build and VST3 validation
+      - name: Configure FL-native product
+        run: cmake -S product -B build/product -G "Visual Studio 17 2022" -A x64 -DFIELD_BUILD_VST3=OFF
+      - name: Build native plugin and acceptance tests
         run: cmake --build build/product --config Release --parallel 4
-      - name: Core acceptance tests
+      - name: Core and regression acceptance
         run: ctest --test-dir build/product -C Release --output-on-failure
-      - name: Render actual Windows UI
-        run: ./build/product/Release/FieldRenderCheck.exe
-      - name: Package binaries
+      - name: Windows UI acceptance
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path 'package/Field 1 Beta' -Force | Out-Null
+          ./build/product/Release/FieldRenderCheck.exe | Tee-Object Field-validation.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package native product
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path 'package/Field 1 Beta', dist -Force | Out-Null
           Copy-Item 'build/product/Release/Field 1 Beta_x64.dll' 'package/Field 1 Beta/'
           Set-Content -Path 'package/Field 1 Beta/Plugin.nfo' -Value 'ps_vendorname=Field'
-          $bundle = Get-ChildItem build/product -Recurse -Directory -Filter FieldVST3.vst3 | Select-Object -First 1
-          if (-not $bundle) { throw 'VST3 bundle missing' }
-          Copy-Item $bundle.FullName package -Recurse
           Copy-Item product/docs package -Recurse
-          Copy-Item LICENSE 'package/FIELD-DEMO-LICENSE.txt'
-          $sdkLicenses = Get-ChildItem build/product/_deps/vst3sdk-src -File -Filter LICENSE*
-          foreach ($license in $sdkLicenses) { Copy-Item $license.FullName ('package/VST3-SDK-' + $license.Name) }
-          Copy-Item Field-render-check.png package
+          Copy-Item LICENSE 'package/FIELD-LICENSE.txt'
+          Copy-Item Field-*.png package
+          Copy-Item Field-validation.txt package
+          Set-Content package/BUILD.txt "Field 1.0.0-rc.1`nFL Studio native x64`nCommit: $env:GITHUB_SHA`nRun: $env:GITHUB_RUN_ID"
+      - name: Build installer
+        shell: pwsh
+        run: '& "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" product/installer/Field.iss'
+      - name: Portable ZIP and checksums
+        shell: pwsh
+        run: |
           $packageRoot = (Resolve-Path package).Path
-          $checksums = @(Get-ChildItem package -Recurse -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | Sort-Object FullName | ForEach-Object {
+          $checksums = @(Get-ChildItem package -Recurse -File | Sort-Object FullName | ForEach-Object {
             $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             $relative = [IO.Path]::GetRelativePath($packageRoot, $_.FullName).Replace('\', '/')
             "$hash  $relative"
           })
-          $checksums | Set-Content -LiteralPath package/SHA256SUMS.txt -Encoding utf8
-          Compress-Archive -Path package/* -DestinationPath Field-1.0.0-beta.1-Demo-Windows-x64.zip
-      - name: Build installer
+          $checksums | Set-Content package/SHA256SUMS.txt -Encoding utf8
+          Compress-Archive -Path package/* -DestinationPath dist/Field-1.0.0-rc.1-FL-Windows-x64.zip
+          $releaseChecksums = @(Get-ChildItem dist -File | ForEach-Object {
+            $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          })
+          $releaseChecksums | Set-Content dist/SHA256SUMS.txt -Encoding utf8
+      - name: Renderer review images
         shell: pwsh
-        run: '& "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" product/installer/Field.iss'
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          foreach ($name in @('Field-full-range.png', 'Field-frequency-zoom.png')) {
+            $source = [Drawing.Image]::FromFile((Resolve-Path $name).Path)
+            $thumb = New-Object Drawing.Bitmap(960, 608)
+            $graphics = [Drawing.Graphics]::FromImage($thumb)
+            $graphics.DrawImage($source, 0, 0, 960, 608)
+            $memory = New-Object IO.MemoryStream
+            $thumb.Save($memory, [Drawing.Imaging.ImageFormat]::Jpeg)
+            Write-Output ("FIELD_PREVIEW " + $name + " " + [Convert]::ToBase64String($memory.ToArray()))
+            $graphics.Dispose(); $thumb.Dispose(); $source.Dispose(); $memory.Dispose()
+          }
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: Field-1.0.0-beta.1-Demo-Windows-x64
+          name: Field-1.0.0-rc.1-FL-Windows-x64
           path: |
-            Field-1.0.0-beta.1-Demo-Windows-x64.zip
-            package/*Setup.exe
-            Field-render-check.png
+            dist/*
+            Field-*.png
+            Field-validation.txt
+            build/product/Testing/Temporary/LastTest.log
           if-no-files-found: error

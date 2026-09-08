@@ -1,26 +1,52 @@
 #include "FieldView.h"
 #include <cmath>
 #include <iostream>
-int main(){
-    auto engine=std::make_unique<field::Engine>();engine->setRate(48000);
-    const char* names[]={"Kick","Bass","Vocal","Guitar L","Guitar R","Pad","Hi-hat","Flute"};
-    float frequencies[]={60,100,800,420,600,1800,9000,1600};
-    for(int i=0;i<8;++i)engine->setRoute(i,i+1,names[i],field::Kind::Source);
-    HWND parent=CreateWindowW(L"STATIC",L"Field renderer validation",WS_OVERLAPPEDWINDOW|WS_VISIBLE,0,0,1200,800,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
-    field::View view(*engine,GetModuleHandleW(nullptr));view.mode=L"Synthetic renderer test";
-    if(!view.attach(parent))return 1;
-    auto p=engine->preferences();p.selected=2;engine->setPreferences(p);
-    for(int block=0;block<150;++block){for(int r=0;r<8;++r){std::array<float,768> l{},rr{};
-            for(int i=0;i<768;++i){double t=(block*768+i)/48000.;float v=float(.18*std::sin(t*frequencies[r]*6.283185307));
-                if(r==2)v+=float(.06*std::sin(t*2200*6.283185307));l[i]=v*(r==4?.2f:1.f);rr[i]=v*(r==3?.2f:1.f);}
-            engine->capture(r,l.data(),rr.data(),768);}
-        MSG msg;while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}Sleep(16);}
-    RECT rect;GetClientRect(view.window(),&rect);HDC dc=GetDC(view.window());HDC memory=CreateCompatibleDC(dc);
+#include <stdexcept>
+#include <fstream>
+void check(bool x,const char* message){if(!x)throw std::runtime_error(message);}
+void paint(field::View& view){InvalidateRect(view.window(),nullptr,FALSE);UpdateWindow(view.window());}
+void mouse(field::View& view,UINT type,int x,int y){SendMessageW(view.window(),type,type==WM_MOUSEMOVE?MK_LBUTTON:0,MAKELPARAM(x,y));}
+bool capture(field::View& view,const wchar_t* path){
+    RECT rect{};GetClientRect(view.window(),&rect);HDC dc=GetDC(view.window()),memory=CreateCompatibleDC(dc);
     HBITMAP bitmap=CreateCompatibleBitmap(dc,rect.right,rect.bottom);HGDIOBJ old=SelectObject(memory,bitmap);
     BitBlt(memory,0,0,rect.right,rect.bottom,dc,0,0,SRCCOPY);Gdiplus::Bitmap image(bitmap,nullptr);
     UINT count=0,size=0;Gdiplus::GetImageEncodersSize(&count,&size);std::vector<uint8_t> storage(size);
     auto codecs=reinterpret_cast<Gdiplus::ImageCodecInfo*>(storage.data());Gdiplus::GetImageEncoders(count,size,codecs);
-    bool saved=false;for(UINT i=0;i<count;++i)if(wcscmp(codecs[i].MimeType,L"image/png")==0)saved=image.Save(L"Field-render-check.png",&codecs[i].Clsid)==Gdiplus::Ok;
-    SelectObject(memory,old);DeleteObject(bitmap);DeleteDC(memory);ReleaseDC(view.window(),dc);
-    std::cout<<(saved?"Renderer PNG saved\n":"Renderer capture failed\n");return saved?0:1;
+    bool saved=false;for(UINT i=0;i<count;++i)if(wcscmp(codecs[i].MimeType,L"image/png")==0)saved=image.Save(path,&codecs[i].Clsid)==Gdiplus::Ok;
+    SelectObject(memory,old);DeleteObject(bitmap);DeleteDC(memory);ReleaseDC(view.window(),dc);return saved;
 }
+int main(){try{
+    auto engine=std::make_unique<field::Engine>();engine->setRate(48000);
+    const char* names[]={"Kick","Bass","Vocal","Guitar L","Guitar R","Wide pad","Hi-hat","Reverb"};
+    float frequencies[]={60,100,800,420,600,1800,9000,1600};
+    for(int i=0;i<8;++i)engine->setRoute(i,i+1,names[i],i==7?field::Kind::Reverb:field::Kind::Source);
+    HWND parent=CreateWindowW(L"STATIC",L"Field renderer validation",WS_OVERLAPPEDWINDOW|WS_VISIBLE,0,0,1240,840,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
+    field::View view(*engine,GetModuleHandleW(nullptr));check(view.attach(parent),"create native Windows editor");
+    auto p=engine->preferences();p.selected=2;engine->setPreferences(p);
+    for(int block=0;block<90;++block){for(int r=0;r<8;++r){std::array<float,768> l{},rr{};
+        for(int i=0;i<768;++i){double t=(block*768+i)/48000.;float v=float(.18*std::sin(t*frequencies[r]*6.283185307));
+            if(r==2)v+=float(.06*std::sin(t*2200*6.283185307));l[i]=r==4?0:v;rr[i]=r==3?0:r==5?float(.18*std::sin(t*2131*6.283185307)):v;}
+        engine->capture(r,l.data(),rr.data(),768);}
+        MSG msg;while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}Sleep(16);}
+    paint(view);check(view.renderedRoute(3)&&view.renderedRoutePan(3)<-.99f,"actual renderer hard-left pan");
+    check(view.renderedRoute(7),"unassociated named return must retain its source body");
+    check(capture(view,L"Field-full-range.png"),"full range screenshot");
+    mouse(view,WM_LBUTTONDOWN,1160,148);mouse(view,WM_MOUSEMOVE,1160,300);mouse(view,WM_LBUTTONUP,1160,300);
+    mouse(view,WM_LBUTTONDOWN,1160,654);mouse(view,WM_MOUSEMOVE,1160,500);mouse(view,WM_LBUTTONUP,1160,500);
+    paint(view);p=engine->preferences();check(p.frequency.low>.25f&&p.frequency.high<.75f,"frequency range handles change persisted range");
+    check(!view.renderedRoute(0)&&!view.renderedRoute(6),"frequency range excludes low kick and high hat geometry");
+    check(capture(view,L"Field-frequency-zoom.png"),"zoom screenshot");
+    auto state=engine->save();auto restored=std::make_unique<field::Engine>();restored->stop();check(restored->restore(state.data(),state.size()),"zoom state from real UI loads");
+    check(std::abs(restored->preferences().frequency.low-p.frequency.low)<.001,"UI zoom survives project reopen");
+    mouse(view,WM_LBUTTONDOWN,1160,400);mouse(view,WM_MOUSEMOVE,1160,425);mouse(view,WM_LBUTTONUP,1160,425);
+    check(engine->preferences().frequency.low<p.frequency.low,"dragging selected band pans the frequency window");
+    mouse(view,WM_LBUTTONDBLCLK,1160,400);paint(view);check(engine->preferences().frequency.low==0&&engine->preferences().frequency.high==1,"double click resets frequency range");
+    mouse(view,WM_LBUTTONDOWN,215,86);mouse(view,WM_LBUTTONUP,215,86);paint(view);check(engine->preferences().sidebarCollapsed,"sidebar collapse persists");
+    mouse(view,WM_LBUTTONDOWN,1190,32);mouse(view,WM_LBUTTONUP,1190,32);paint(view);
+    SendMessageW(view.window(),WM_KEYDOWN,VK_ESCAPE,0);paint(view);check(GetParent(view.window())==parent,"fullscreen escape restores original host parent");
+    auto before=engine->preferences();mouse(view,WM_LBUTTONDOWN,550,430);mouse(view,WM_MOUSEMOVE,585,435);mouse(view,WM_LBUTTONUP,585,435);paint(view);
+    check(std::abs(engine->preferences().yaw-before.yaw)>.1f,"camera drag remains functional");
+    std::cout<<"PASS: Windows renderer pan, safe named returns, frequency handle drag, range pan, reset, state reopen, sidebar, fullscreen restore, orbit\n";
+    std::cout<<"Last paint ms: "<<view.framePaintMs()<<"\n";
+    return 0;
+}catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<"\n";return 1;}}

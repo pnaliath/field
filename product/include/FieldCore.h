@@ -16,13 +16,28 @@ namespace field {
 static_assert(std::atomic<float>::is_always_lock_free && std::atomic<double>::is_always_lock_free &&
               std::atomic<uint64_t>::is_always_lock_free, "Field requires lock-free audio telemetry atomics");
 constexpr int Routes = 128, Bands = 76, FFTSize = 4096;
-constexpr const char* Version = "1.0.0-beta.1";
+constexpr const char* Version = "1.0.0-rc.1";
 inline double nowMs() noexcept {
     return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 inline float db(double v) noexcept { return float(20.0*std::log10(std::max(v,1.e-9))); }
 inline float unit(float v) noexcept { return std::clamp(v,0.f,1.f); }
 inline float hz(int b) noexcept { return 28.f*std::pow(18000.f/28.f,float(b)/75.f); }
+inline float axisHz(float y) noexcept { return 28.f*std::pow(18000.f/28.f,unit(y)); }
+constexpr float MinFrequencySpan=.12f;
+struct FrequencyRange {
+    float low=0,high=1;
+    void sanitize() noexcept {
+        low=unit(std::isfinite(low)?low:0.f);high=unit(std::isfinite(high)?high:1.f);
+        if(high-low<MinFrequencySpan){low=std::min(low,1.f-MinFrequencySpan);high=low+MinFrequencySpan;}
+    }
+    float project(float y) const noexcept {return (y-low)/std::max(MinFrequencySpan,high-low);}
+    void move(float delta) noexcept {float span=high-low;low=std::clamp(low+delta,0.f,1.f-span);high=low+span;}
+    void zoom(float factor,float anchor) noexcept {
+        float span=high-low,part=unit((anchor-low)/span),next=std::clamp(span*factor,MinFrequencySpan,1.f);
+        low=std::clamp(anchor-part*next,0.f,1.f-next);high=low+next;
+    }
+};
 inline float depth(float level) noexcept { return .10f+.72f*unit((-14.f-level)/58.f); }
 enum class Kind : uint32_t { Unknown, Source, Bus, Reverb, Delay, Parallel };
 inline const char* kindName(Kind k) {
@@ -36,6 +51,7 @@ struct RouteView {
     uint32_t color=0;
     Kind kind=Kind::Unknown;
     bool visible=true, present=false, ready=false, provisional=false, sustained=false;
+    bool manualType=false;
     float peak=-180,rms=-180,pan=0,stablePan=0,width=0,z=.5f,presence=0;
     float low=0,high=0,dominant=0,level=-180;
     std::array<float,Bands> shape{},eq{};
@@ -54,10 +70,21 @@ struct Snapshot {
     uint64_t dropped=0;
     uint32_t queueDepth=0,active=0;
 };
+inline bool associatedReturn(const RouteView& v,const Snapshot& frame) noexcept {
+    if((v.kind!=Kind::Reverb&&v.kind!=Kind::Delay)||v.fxConfidence<.98f||v.fxSource<0||v.fxSource>=Routes)return false;
+    const auto& source=frame.routes[v.fxSource];
+    return source.id&&source.visible&&source.provisional&&source.kind!=Kind::Reverb&&source.kind!=Kind::Delay;
+}
+inline float renderedPan(const RouteView& v) noexcept {return v.sustained?v.pan:v.eventPan;}
+inline float spectralRadius(float shape,float width,int voices=1) noexcept {
+    return (voices==2?.78f:1.f)*(.018f+(.042f+.31f*unit(width))*std::pow(unit(shape),.72f));
+}
 struct Preferences {
     float yaw=.38f,pitch=.20f,zoom=1,animation=1;
     int selected=-1,detail=1,analysis=1;
     bool labels=true,grid=true,fx=true;
+    bool sidebarCollapsed=false,showAllRoutes=false;
+    FrequencyRange frequency;
 };
 
 template<size_t Capacity> struct SampleRing {
@@ -113,7 +140,7 @@ public:
         if(route<0||route>=Routes||!left||n<=0||stride<1)return;
         auto& r=*audio[route];
         const double sr=sampleRate.load(std::memory_order_relaxed);
-        double l2=0,r2=0,mid2=0,side2=0,peak=0;
+        double l2=0,r2=0,lr=0,sumL=0,sumR=0,peak=0;
         auto value=[&](int i) noexcept {
             double l=double(left[size_t(i)*stride]);
             double rr=right?double(right[size_t(i)*stride]):l;
@@ -122,11 +149,15 @@ public:
             return typename SampleRing<16384>::Sample{float(l),float(rr)};
         };
         for(int i=0;i<n;++i){auto s=value(i);double l=s.l,rr=s.r;
-            l2+=l*l;r2+=rr*rr;mid2+=(l+rr)*(l+rr)*.25;side2+=(l-rr)*(l-rr)*.25;
+            l2+=l*l;r2+=rr*rr;lr+=l*rr;sumL+=l;sumR+=rr;
             peak=std::max(peak,std::max(std::abs(l),std::abs(rr)));}
         float rms=float(std::sqrt((l2+r2)/(2.*n)));
         float pan=float((std::sqrt(r2)-std::sqrt(l2))/(std::sqrt(r2)+std::sqrt(l2)+1.e-18));
-        float width=unit(float(std::sqrt(side2)/(std::sqrt(mid2)+std::sqrt(side2)+1.e-18))*1.65f);
+        double varL=std::max(0.,l2-sumL*sumL/n),varR=std::max(0.,r2-sumR*sumR/n);
+        // Correlation measures channel independence; channel gain imbalance is pan.
+        float width=0;
+        if(varL>1.e-16&&varR>1.e-16){double corr=std::clamp((lr-sumL*sumR/n)/std::sqrt(varL*varR),-1.,1.);
+            width=float(std::sqrt(std::max(0.,(1.-corr)*.5)));}
         double t=nowMs(),duration=1000.*n/sr;
         r.peak.store(db(peak),std::memory_order_relaxed);r.rms.store(db(rms),std::memory_order_relaxed);
         r.pan.store(pan,std::memory_order_relaxed);r.width.store(width,std::memory_order_relaxed);
@@ -138,7 +169,8 @@ public:
                 r.onsetCount.fetch_add(1,std::memory_order_release);}
         }
         r.previousRms=rms+(r.previousRms-rms)*float(std::exp(-duration/10.));
-        if(peak>1.e-8)r.ring.push(n,value);
+        if(peak>1.e-8)r.tailSamples=FFTSize;
+        if(peak>1.e-8||r.tailSamples>0){r.ring.push(n,value);if(peak<=1.e-8)r.tailSamples=std::max(0,r.tailSamples-n);}
     }
 private:
     struct Audio {
@@ -147,6 +179,7 @@ private:
         std::atomic<double> lastBlock{0},lastSignal{0},onsetTime{0};
         std::atomic<uint32_t> onsetCount{0};
         float previousRms=0;double lastOnset=-1000;
+        int tailSamples=0;
     };
     struct Learner {
         std::array<float,FFTSize> l{},r{};

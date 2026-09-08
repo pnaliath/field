@@ -1,17 +1,17 @@
 [Setup]
 AppId={{F58F6161-9433-4824-AE91-72178FB98A4E}
-AppName=Field 1.0 Beta Demo
-AppVersion=1.0.0-beta.1
+AppName=Field 1 Release Candidate
+AppVersion=1.0.0-rc.1
 AppPublisher=Field
-DefaultDirName={autopf}\Field Beta Demo
-OutputDir=..\..\package
-OutputBaseFilename=Field-1.0.0-beta.1-Demo-Windows-x64-Setup
+DefaultDirName={autopf}\Field
+OutputDir=..\..\dist
+OutputBaseFilename=Field-1.0.0-rc.1-FL-Windows-x64-Setup
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 Compression=lzma2
 SolidCompression=yes
-UninstallDisplayName=Field 1.0 Beta Demo
+UninstallDisplayName=Field 1 Release Candidate
 WizardStyle=modern
 LicenseFile=..\..\LICENSE
 InfoBeforeFile=..\docs\DEMO-NOTICE.txt
@@ -21,7 +21,7 @@ Source: "..\..\package\Field 1 Beta\*"; DestDir: "{code:FLPath}\Plugins\Fruity\E
 Source: "..\docs\USER-GUIDE.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\docs\RELEASE-GATES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\docs\DEMO-NOTICE.txt"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "FIELD-DEMO-LICENSE.txt"; Flags: ignoreversion
+Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "FIELD-LICENSE.txt"; Flags: ignoreversion
 
 [Code]
 var FLPage: TInputDirWizardPage;
@@ -67,7 +67,7 @@ var
   Detected: String;
 begin
   FLPage := CreateInputDirPage(wpSelectDir, 'FL Studio installation',
-    'Select the folder containing FL64.exe.', 'Field Demo installs only the FL Studio native one-instance plugin. An installed FL Studio version is selected automatically when found.', False, '');
+    'Select the folder containing FL64.exe.', 'Field installs only the FL Studio native one-instance plugin. An installed FL Studio version is selected automatically when found.', False, '');
   FLPage.Add('FL Studio folder:');
   Detected := DetectFLStudio;
   if Detected <> '' then
@@ -90,3 +90,4 @@ function FLPath(Param: String): String;
 begin
   Result := FLPage.Values[0];
 end;
+

@@ -4,13 +4,13 @@
 
 namespace {
 HINSTANCE module=nullptr;
-char name[]="Field 1.0 Beta",shortName[]="Field1Beta";
+char name[]="Field 1",shortName[]="Field1Beta";
 TFruityPlugInfo info={CurrentSDKVersion,name,shortName,0,0,0,0,0,{}};
 field::Kind inferredKind(const std::string& title){
     std::string s;for(unsigned char c:title)if(!std::isspace(c)||!s.empty())s.push_back(char(std::toupper(c)));
     while(!s.empty()&&std::isspace(static_cast<unsigned char>(s.back())))s.pop_back();
-    if(s=="REV"||s=="REVERB"||s=="FX REV"||s=="FX REVERB"||s.find("REVERB")!=std::string::npos)return field::Kind::Reverb;
-    if(s=="DEL"||s=="DELAY"||s=="ECHO"||s=="FX DEL"||s=="FX DELAY"||s.find("DELAY")!=std::string::npos)return field::Kind::Delay;
+    if(s=="REV"||s=="REVERB"||s=="FX REV"||s=="FX REVERB")return field::Kind::Reverb;
+    if(s=="DEL"||s=="DELAY"||s=="ECHO"||s=="FX DEL"||s=="FX DELAY")return field::Kind::Delay;
     return field::Kind::Unknown;
 }
 class Native final:public TCPPFruityPlug {
@@ -71,3 +71,4 @@ public:
 BOOL WINAPI DllMain(HINSTANCE instance,DWORD reason,LPVOID){if(reason==DLL_PROCESS_ATTACH)module=instance;return TRUE;}
 extern "C" __declspec(dllexport) TFruityPlug* _stdcall CreatePlugInstance(TFruityPlugHost* host,int tag){
     try{return new Native(tag,host);}catch(...){return nullptr;}}
+

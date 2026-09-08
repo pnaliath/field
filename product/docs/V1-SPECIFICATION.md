@@ -1,3 +1,5 @@
+> **Scope amendment — 2026-09-08:** The user selected the existing FL-native, single-master-instance workflow for V1. Per-track Senders and generic VST3 delivery are excluded from this release. The vertical frequency-range zoom control is required. Earlier cross-DAW paragraphs below remain historical design context, not current release requirements. Native discovery remains limited to host-exposed routes; hidden subgroup children are not reconstructed. Other correctness, persistence and acceptance requirements still apply.
+
 # Field V1.0 — Production-Ready VST Specification
 
 Field V1.0 ko experiment series ka polished continuation nahi, balki **clean production product** treat karna chahiye.

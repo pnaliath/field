@@ -1,51 +1,49 @@
-# Field 1.0.0-beta.1 Demo
+# Field 1.0.0-rc.1 — FL Studio native
 
-**Proprietary commercial software — evaluation only.** This is a pre-release demo build of Field. It may be installed and used only for personal or internal evaluation and testing. It may not be sold, resold, shared, uploaded, redistributed, mirrored, bundled, repackaged, sublicensed, rented, leased, lent, or otherwise provided to another person without prior written permission from Field. See `FIELD-DEMO-LICENSE.txt` / the installer license for the complete terms.
+Windows x64 release candidate. Use one native Field instance on the master. The installer contains the FL-native plugin only. Analysis stays on this computer; Field does not alter, record or export audio.
 
-Windows x64 beta candidate. A spatial mix visualizer. Audio passes through unchanged. No account, network, cloud analysis, recording, or audio export.
+## Install and open
 
-## Install
+Close FL Studio, run the installer, and select the FL installation containing FL64.exe. Standard installation locations are detected. Open FL Studio and add **Field 1** to the master. Press play.
 
-Close FL Studio and run the setup EXE. The installer identifies this build as **Field 1.0 Beta Demo**, requires acceptance of the Field Commercial Demo / Evaluation License, and installs **only the FL Studio native one-instance plugin**. There is no VST3 component-selection page in the installer. Select the actual FL Studio installation containing `FL64.exe`, then rescan/restart FL Studio if needed.
+The `Field 1 Beta` installation folder and DLL filename are retained to update existing beta installations in place. The visible plugin is Field 1. Do not install a second copy under a different folder. Existing project state versions 1 and 2 load with their camera, visibility and learned profiles; the new frequency range defaults to full range.
 
-Manual installation from the ZIP:
+Manual installation: copy the `Field 1 Beta` folder from the portable ZIP to `<FL Studio>/Plugins/Fruity/Effects`. Close the host before replacing it. The installer provides a Windows uninstaller; remove that folder to uninstall a manual installation.
 
-- For the supported FL Studio demo workflow, copy the `Field 1 Beta` folder to `<FL Studio installation>\Plugins\Fruity\Effects`.
-- The portable package may also contain development/compatibility VST3 binaries used by the build and validation pipeline. They are not installed by the demo installer and are not the intended FL one-instance workflow.
-- Remove the native folder to uninstall a manual installation. The installer has a normal Windows uninstaller.
+## Frequency zoom
 
-The ZIP is also evaluation-only. Manual installation does not grant redistribution or resale rights.
+The vertical FREQ bar at the right shows the full 28 Hz–18 kHz range.
 
-## FL Studio — native one-instance mode
+- Drag its upper handle to set the highest displayed frequency.
+- Drag its lower handle to set the lowest displayed frequency.
+- Drag the highlighted band to move the selected frequency window.
+- Scroll over the bar to zoom around the pointer position.
+- Double-click the bar, or click its Reset button, for the full frequency range.
 
-For FL Studio, **use the native Field plugin as the primary mode**. Insert **Field 1.0 Beta** on the master and press play. One native Field instance queries FL's exposed mixer input names and read-only route buffers. It copies the authoritative master input to its output; it never substitutes a reconstructed sum. Analysis starts automatically.
+Zoom changes the room's frequency axis and visible geometry only. It does not filter audio or relearn source profiles. The selected range is saved with the project. Camera zoom remains on the mouse wheel over the room.
 
-Only routes the host exposes to this native effect can be discovered. A child track routed solely through a subgroup may not be exposed separately. Field cannot inspect arbitrary hidden child routes or reconstruct a routing graph that the SDK does not provide. Put it at the relevant bus to inspect that bus's exposed inputs. It cannot promise a complete independent object for every mixer channel in every FL project.
+## Sources and returns
 
-Do not use the VST3 master instance as FL Studio's one-instance whole-mixer mode. A normal VST3 insert receives only its own host audio input and therefore cannot automatically inspect every unrelated mixer track.
+The SOURCES heading switches to ALL ROUTES so every discovered route remains accessible, including silent tracks and collapsed returns. An unverified reverb/delay name is only a classification hint. It cannot erase a source. A return collapses into its source only when a sufficiently confident association exists and the source is visible. An uncertain association produces no guessed particle attachment.
 
-## VST3 Link — development compatibility mode
+Click a route to inspect it. Use the square to change visibility; Show All / Hide All affect all routes. Right-click a route to set its type or colour. A manual type has priority over native name metadata. Set type to Unknown to allow automatic classification again. Effects visualization can be disabled independently in Settings. Unassigned returns remain visible.
 
-The repository/package can still build the generic VST3 + Sender path for validation and future compatibility work, but the demo installer does not install it. The commercial FL workflow for this beta is Native one-instance mode.
+Pan is the current stereo balance. Width measures channel independence separately from gain imbalance. The spectrum defines height and lobes; stereo width affects body width. Louder activity is nearer. Transient positions are held for an event, while sustained sources track live pan. Reverb and delay graphics are conservative relationship estimates, not plugin parameter readouts.
 
-## Read the room
+## View and learning
 
-Left/right is stereo balance. Height is frequency from 28 Hz to 18 kHz. Louder sources are closer. Width is learned separately from pan. Transients freeze their position during their fade; sustained sources use a persistent body. Spectral shapes learn during playback and are preserved with project state, then revalidated against new audio.
+Drag to orbit; scroll over the room to zoom the camera; double-click the room to reset the camera. View provides Perspective, Front, Top and Side. Full screen detaches the canvas; Restore or Esc returns it to the FL editor. The source panel can collapse independently per instance and its preference is saved.
 
-The sidebar lists audible source objects, not dedicated auxiliary FX returns. Common named `REV`/`REVERB`, `DEL`/`DELAY`/`ECHO`, and exact `EQ` utility routes are kept out of the independent source-body list. Reverb/delay returns continue to be analysed so they can contribute source-associated effect visuals when a reliable relationship exists.
+Reset View resets the camera only. The frequency bar has its own reset. Relearn Selected / Relearn All reset analysis independently of view controls. Reset Visual Preferences resets display settings.
 
-Use **Show All** and **Hide All** above the source list to enable or disable all source visuals at once. The per-source square still controls individual visibility. Click a source to inspect it. The inspector has an `×` control to close it. Right-click a source to choose its route type or colour. Scroll the sidebar to see further sources. Route type overrides do not change audio.
+## Diagnostics
 
-Drag the room to orbit, wheel to zoom, and double-click to reset the view. Use **Full screen** in the upper-right to detach the Field canvas to the current monitor; use **Restore** or `Esc` to return it to the host editor. The View menu has Perspective, Front, Top, and Side views. Reset View affects only the camera. Reset visual preferences affects the display. Learn has independent selected/all relearn actions.
+Settings → Developer diagnostics shows timing. Record diagnostics CSV saves route names, rendered geometry, frequency range and timing metrics, never audio. BUILD.txt identifies the exact source commit. No telemetry or login is required.
 
-Settings controls labels, grid, FX, render detail, analysis cadence, and developer diagnostics. CSV recording is explicit: choose Record diagnostics CSV and a destination; stop from the same menu. Logs contain route names and metrics, never audio. Treat route names as project metadata when sharing logs.
+## Supported discovery
 
-## Licensing and third-party notices
+This product uses the same native input acquisition as the existing Field workflow. It shows the mixer inputs FL exposes to the effect. A child routed exclusively through a subgroup may be visible only as that bus. No per-track Sender workflow is required or installed. Complete hidden-child reconstruction and automatic routing-graph deduplication are not claimed.
 
-Field itself is proprietary commercial software. This demo grants evaluation rights only; it does not grant rights to sell, redistribute, share, publish, sublicense, mirror, bundle, repackage, or commercially exploit Field.
+## Release status
 
-Third-party license files included in the package apply only to the specifically identified third-party components. They do **not** grant permission to redistribute, sell, sublicense, repackage, or otherwise distribute Field itself.
-
-## Current limits
-
-This is an unsigned pre-release demo. External DAW testing, installation testing and measured release thresholds remain open; see RELEASE-GATES.md. Do not rename it final V1.0 based on a successful compiler or VST3 validator run.
+The candidate is unsigned. Core regressions and an automated Windows UI harness are part of the build. Real FL project acceptance and clean-machine installation results must be recorded before labelling the package a commercially verified final release. The supplied proprietary licence remains in effect.
