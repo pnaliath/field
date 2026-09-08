@@ -2,7 +2,7 @@ name: Field FL-native release candidate
 on:
   workflow_dispatch:
   push:
-    branches: [release/v1.0-product]
+    branches: [release/v1.0-product, fix/beta1-product-issues]
     paths: [product/**, LICENSE, .github/workflows/build-field-product.yml]
 permissions:
   contents: read
