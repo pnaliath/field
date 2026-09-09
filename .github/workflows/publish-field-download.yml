@@ -52,20 +52,27 @@ jobs:
           if (!(Test-Path $source)) { throw "Installer not found: $source" }
           New-Item -ItemType Directory -Path deploy-site -Force | Out-Null
           Copy-Item $source 'deploy-site/Field-Setup.exe' -Force
-          $hash = (Get-FileHash 'deploy-site/Field-Setup.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  Field-Setup.exe" | Set-Content 'deploy-site/SHA256SUMS.txt' -Encoding ascii
+
+          $zip = 'deploy-site/Field-FL-Studio-Manual.zip'
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path 'package/Field 1 Beta' -DestinationPath $zip -CompressionLevel Optimal
+
+          $installerHash = (Get-FileHash 'deploy-site/Field-Setup.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          $zipHash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$installerHash  Field-Setup.exe" | Set-Content 'deploy-site/SHA256SUMS.txt' -Encoding ascii
+          "$zipHash  Field-FL-Studio-Manual.zip" | Add-Content 'deploy-site/SHA256SUMS.txt' -Encoding ascii
           "Source commit: $env:GITHUB_SHA" | Add-Content 'deploy-site/SHA256SUMS.txt' -Encoding ascii
 
-      - name: Commit published installer
+      - name: Commit published downloads
         shell: pwsh
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add deploy-site/Field-Setup.exe deploy-site/SHA256SUMS.txt
+          git add deploy-site/Field-Setup.exe deploy-site/Field-FL-Studio-Manual.zip deploy-site/SHA256SUMS.txt
           git diff --cached --quiet
           if ($LASTEXITCODE -eq 0) {
-            Write-Host 'Installer is already current.'
+            Write-Host 'Download files are already current.'
             exit 0
           }
-          git commit -m "Publish Field installer from $env:GITHUB_SHA"
+          git commit -m "Publish Field downloads from $env:GITHUB_SHA"
           git push origin HEAD:deploy/field-download
