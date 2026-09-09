@@ -7,11 +7,11 @@
   <meta name="description" content="Download the internal testing build of Field for FL Studio on Windows x64." />
   <style>
     :root{color-scheme:dark;--bg:#0d1318;--panel:#131d24;--line:#263842;--text:#e2ebee;--muted:#8ea6b1;--accent:#64d4c4}
-    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 50% 25%,#17252d 0,var(--bg) 48%);font-family:Segoe UI,Inter,system-ui,sans-serif;color:var(--text)}
-    main{width:min(680px,calc(100% - 32px));padding:42px;border:1px solid var(--line);background:rgba(19,29,36,.92);border-radius:18px;box-shadow:0 24px 80px rgba(0,0,0,.35)}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 50% 25%,#17252d 0,var(--bg) 48%);font-family:Segoe UI,Inter,system-ui,sans-serif;color:var(--text);padding:32px 0}
+    main{width:min(760px,calc(100% - 32px));padding:42px;border:1px solid var(--line);background:rgba(19,29,36,.92);border-radius:18px;box-shadow:0 24px 80px rgba(0,0,0,.35)}
     .brand{font-size:13px;letter-spacing:.22em;color:var(--accent);font-weight:700}h1{font-size:42px;margin:12px 0 10px;letter-spacing:-.03em}h2{font-size:16px;margin:30px 0 10px;color:var(--text)}p{color:var(--muted);line-height:1.6;margin:0 0 18px}.meta{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 24px}.tag{border:1px solid var(--line);padding:7px 10px;border-radius:999px;color:#b8c9d0;font-size:13px}
-    a.download{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 22px;border-radius:10px;background:var(--accent);color:#07110f;text-decoration:none;font-weight:700}a.download:hover{filter:brightness(1.06)}
-    .notice{margin:0 0 24px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:#101920;color:#b8c9d0;line-height:1.55}.steps{margin:0;padding-left:20px;color:var(--muted);line-height:1.7}.steps li+li{margin-top:6px}
+    .downloads{display:flex;gap:10px;flex-wrap:wrap}.download{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 22px;border-radius:10px;background:var(--accent);color:#07110f;text-decoration:none;font-weight:700}.download.secondary{background:transparent;color:var(--text);border:1px solid var(--line)}.download:hover{filter:brightness(1.06)}
+    .notice{margin:0 0 24px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:#101920;color:#b8c9d0;line-height:1.55}.steps{margin:0;padding-left:20px;color:var(--muted);line-height:1.7}.steps li+li{margin-top:6px}.path{display:block;margin:8px 0;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#0b1217;color:#c9d7dc;font-family:Consolas,monospace;font-size:13px;overflow-wrap:anywhere}
   </style>
 </head>
 <body>
@@ -21,16 +21,34 @@
     <p>Field is currently available for internal testing only.</p>
     <div class="meta"><span class="tag">Windows 10/11 x64</span><span class="tag">FL Studio only</span></div>
     <div class="notice">This build is intended only for internal testing. It is not a public release.</div>
-    <a class="download" href="/Field-Setup.exe">Download Field for Windows</a>
 
-    <h2>How to install</h2>
+    <div class="downloads">
+      <a class="download" href="/Field-Setup.exe">Download Installer</a>
+      <a class="download secondary" href="/Field-FL-Studio-Manual.zip">Download Effects Folder ZIP</a>
+    </div>
+
+    <h2>Recommended installation</h2>
     <ol class="steps">
       <li>Download <strong>Field-Setup.exe</strong>.</li>
       <li>Close FL Studio before running the installer.</li>
       <li>Run the installer and complete the installation.</li>
       <li>Open FL Studio.</li>
-      <li>Load Field on the <strong>Master track</strong> in FL Studio and begin testing.</li>
+      <li>Load Field on the <strong>Master track</strong>.</li>
     </ol>
+
+    <h2>Manual installation using the ZIP</h2>
+    <ol class="steps">
+      <li>Download <strong>Field-FL-Studio-Manual.zip</strong> and extract it.</li>
+      <li>Close FL Studio.</li>
+      <li>Copy the extracted <strong>Field 1 Beta</strong> folder into FL Studio's native Effects folder. The default Windows location is:</li>
+    </ol>
+    <code class="path">C:\Program Files\Image-Line\FL Studio &lt;version&gt;\Plugins\Fruity\Effects\</code>
+    <ol class="steps" start="4">
+      <li>The final folder should contain <strong>Field 1 Beta_x64.dll</strong> and <strong>Plugin.nfo</strong>.</li>
+      <li>Open FL Studio.</li>
+      <li>Load Field on the <strong>Master track</strong>.</li>
+    </ol>
+    <p style="margin-top:18px">If FL Studio is installed in a custom location, use that installation folder and then navigate to <strong>Plugins\Fruity\Effects</strong>.</p>
   </main>
 </body>
 </html>
